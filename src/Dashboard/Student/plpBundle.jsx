@@ -3,19 +3,20 @@ import {
   BookOpen,
   CheckCircle,
   Download,
+  Zap,
   Printer,
   ArrowLeft,
   User,
+  Clock,
   Search,
   PieChart,
   Filter,
   LayoutGrid,
   List,
   Brain,
-  TrendingUp,
 } from "lucide-react";
 
-const MasteryRing = ({
+const CircularProgress = ({
   progress,
   size = 60,
   strokeWidth = 6,
@@ -53,10 +54,10 @@ const MasteryRing = ({
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-xl font-black text-slate-800 leading-none">
+        <span className="text-2xl font-black text-slate-800 leading-none">
           {progress}%
         </span>
-        <span className="text-[11px] font-black text-slate-400 uppercase tracking-tighter">
+        <span className="text-[12px] font-black text-slate-400 uppercase tracking-tighter">
           Level
         </span>
       </div>
@@ -75,6 +76,7 @@ const PLPBundle = () => {
     {
       id: "SUB-001",
       name: "Mathematics",
+      category: "Math",
       status: "Priority Intervention",
       progress: 42,
       lastAssessment: "Feb 01, 2026",
@@ -97,11 +99,12 @@ const PLPBundle = () => {
       ],
       tips: ["Focus on quadratics first.", "Use the Pomodoro technique."],
       feedback:
-        "Linear equation mastery is high (FR-03), but diagnostic assessment shows quadratic repetition is required for curriculum coverage.",
+        "Linear equation mastery is high, but diagnostic assessment shows quadratic repetition is required for curriculum coverage.",
     },
     {
       id: "SUB-002",
       name: "Physics",
+      category: "Physics",
       status: "On Track",
       progress: 78,
       lastAssessment: "Jan 28, 2026",
@@ -122,10 +125,12 @@ const PLPBundle = () => {
 
   const filters = ["All Subjects", "Physics", "Math"];
   const filteredSubjects = subjects.filter((sub) => {
+    const matchesFilter =
+      activeFilter === "All Subjects" || sub.category === activeFilter;
     const matchesSearch =
       sub.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       sub.id.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesSearch;
+    return matchesFilter && matchesSearch;
   });
 
   const handleSelectSubject = (sub) => {
@@ -185,7 +190,7 @@ const PLPBundle = () => {
                       <button
                         key={f}
                         onClick={() => setActiveFilter(f)}
-                        className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all ${activeFilter === f ? "bg-[#2D70FD] text-white shadow-lg" : "bg-white text-slate-500 border border-slate-200"}`}
+                        className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap ${activeFilter === f ? "bg-[#2D70FD] text-white shadow-lg" : "bg-white text-slate-500 border border-slate-200"}`}
                       >
                         {f}
                       </button>
@@ -206,203 +211,207 @@ const PLPBundle = () => {
                   </div>
                 </div>
 
-                {viewMode === "grid" ? (
-                  <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-8">
-                    {filteredSubjects.map((sub) => (
-                      <div
-                        key={sub.id}
-                        className="bg-white border border-slate-100 rounded-[2.5rem] p-8 hover:border-blue-200 transition-all group shadow-sm"
-                      >
-                        <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-[#2D70FD] mb-6 group-hover:bg-blue-50 transition-colors">
-                          <PieChart size={28} />
+                {filteredSubjects.length > 0 ? (
+                  viewMode === "grid" ? (
+                    <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-8">
+                      {filteredSubjects.map((sub) => (
+                        <div
+                          key={sub.id}
+                          className="bg-white border border-slate-100 rounded-[2.5rem] p-8 hover:border-blue-200 transition-all group shadow-sm"
+                        >
+                          <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-[#2D70FD] mb-6 group-hover:bg-blue-50 transition-colors">
+                            <PieChart size={28} />
+                          </div>
+                          <div>
+                            <h3 className="font-black text-slate-800 text-lg mb-1 leading-tight">
+                              {sub.name}
+                            </h3>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3 mt-8">
+                            <button
+                              onClick={() => handleSelectSubject(sub)}
+                              className="py-4 bg-blue-50 text-[#2D70FD] rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:bg-blue-100 transition-all"
+                            >
+                              <BookOpen size={18} /> View PLP
+                            </button>
+                            <button className="py-4 bg-[#2D70FD] text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:shadow-lg transition-all shadow-sm">
+                              <Download size={18} /> Export
+                            </button>
+                          </div>
                         </div>
-                        <div>
-                          <h3 className="font-black text-slate-800 text-lg mb-1 leading-tight">
-                            {sub.name}
-                          </h3>
-                          <p className="text-sm font-black text-slate-400">
-                            Analysis ID: {sub.id}
-                          </p>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3 mt-8">
-                          <button
-                            onClick={() => handleSelectSubject(sub)}
-                            className="py-4 bg-blue-50 text-[#2D70FD] rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:bg-blue-100 transition-all"
-                          >
-                            <BookOpen size={18} /> View PLP
-                          </button>
-                          <button className="py-4 bg-[#2D70FD] text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:shadow-lg transition-all shadow-sm">
-                            <Download size={18} /> Export
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="bg-white border border-slate-200 rounded-[2rem] overflow-hidden shadow-sm">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="bg-slate-50 border-b border-slate-200">
-                          <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                            Subject
-                          </th>
-                          <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                            Status
-                          </th>
-                          <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                            Mastery
-                          </th>
-                          <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">
-                            Actions
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredSubjects.map((sub) => (
-                          <tr
-                            key={sub.id}
-                            className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors group"
-                          >
-                            <td className="px-8 py-6">
-                              <div className="flex items-center gap-4">
-                                <div className="p-2 bg-blue-50 rounded-lg text-[#2D70FD]">
-                                  <PieChart size={18} />
-                                </div>
-                                <div>
-                                  <div className="font-black text-slate-800 text-sm">
-                                    {sub.name}
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="bg-white border border-slate-200 rounded-[2rem] overflow-hidden shadow-sm">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-200">
+                            <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                              Subject
+                            </th>
+                            <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                              Status
+                            </th>
+                            <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                              Mastery
+                            </th>
+                            <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">
+                              Actions
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredSubjects.map((sub) => (
+                            <tr
+                              key={sub.id}
+                              className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors group"
+                            >
+                              <td className="px-8 py-6">
+                                <div className="flex items-center gap-4">
+                                  <div className="p-2 bg-blue-50 rounded-lg text-[#2D70FD]">
+                                    <PieChart size={18} />
                                   </div>
-                                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">
-                                    {sub.id}
+                                  <div>
+                                    <div className="font-black text-slate-800 text-sm">
+                                      {sub.name}
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                            </td>
-                            <td className="px-8 py-6">
-                              <span
-                                className={`text-[10px] font-black px-3 py-1 rounded-full border ${sub.progress < 50 ? "bg-red-50 text-red-500 border-red-100" : "bg-emerald-50 text-emerald-500 border-emerald-100"}`}
-                              >
-                                {sub.status.toUpperCase()}
-                              </span>
-                            </td>
-                            <td className="px-8 py-6">
-                              <div className="flex items-center gap-3">
+                              </td>
+                              <td className="px-8 py-6">
+                                <span
+                                  className={`text-[10px] font-black px-3 py-1 rounded-full border ${sub.progress < 50 ? "bg-red-50 text-red-500 border-red-100" : "bg-emerald-50 text-emerald-500 border-emerald-100"}`}
+                                >
+                                  {sub.status.toUpperCase()}
+                                </span>
+                              </td>
+                              <td className="px-8 py-6">
                                 <span className="text-xs font-black text-slate-700">
                                   {sub.progress}%
                                 </span>
-                              </div>
-                            </td>
-                            <td className="px-8 py-6">
-                              <div className="flex justify-end gap-2">
-                                <button
-                                  onClick={() => handleSelectSubject(sub)}
-                                  className="p-2.5 bg-blue-50 text-[#2D70FD] rounded-xl hover:bg-[#2D70FD] hover:text-white transition-all"
-                                >
-                                  <BookOpen size={16} />
-                                </button>
-                                <button className="p-2.5 bg-slate-100 text-slate-400 rounded-xl hover:bg-slate-200 transition-all">
-                                  <Download size={16} />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                              </td>
+                              <td className="px-8 py-6">
+                                <div className="flex justify-end gap-2">
+                                  <button
+                                    onClick={() => handleSelectSubject(sub)}
+                                    className="p-2.5 bg-blue-50 text-[#2D70FD] rounded-xl hover:bg-[#2D70FD] hover:text-white transition-all"
+                                  >
+                                    <BookOpen size={16} />
+                                  </button>
+                                  <button className="p-2.5 bg-slate-100 text-slate-400 rounded-xl hover:bg-slate-200 transition-all">
+                                    <Download size={16} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                ) : (
+                  <div className="text-center py-20 bg-white rounded-[2.5rem] border-2 border-dashed border-slate-200">
+                    <p className="text-slate-400 font-black uppercase tracking-widest">
+                      No matching plans found.
+                    </p>
                   </div>
                 )}
               </>
             ) : (
-              /* DETAIL VIEW - Matches "Performance Mastery" and "Weakness Detection" layout */
-              <div className="grid lg:grid-cols-12 gap-8">
-                {/* Left Column: Mastery & Weakness (FR-03) */}
+              <div className="grid lg:grid-cols-12 gap-10">
                 <div className="lg:col-span-8 space-y-8">
-                  <div className="bg-white p-10 rounded-[2.5rem] border border-slate-100 shadow-sm flex items-center justify-around">
-                    <div className="space-y-4">
-                      <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em]">
-                        Current Mastery
-                      </h4>
-                      <h2 className="text-4xl font-black text-slate-800">
+                  <div className="bg-white border-2 border-blue-50 rounded-[3rem] p-12 flex items-center justify-between shadow-xl shadow-blue-500/5">
+                    <div className="space-y-6">
+                      <span className="text-[#2D70FD] text-[10px] font-black uppercase tracking-[0.2em] bg-blue-50 px-5 py-2 rounded-full">
+                        Unit Progress Analysis
+                      </span>
+                      <h2 className="text-4xl font-black text-slate-800 tracking-tight">
                         {selectedSubject.name}
                       </h2>
-                      <div className="flex items-center gap-2 text-emerald-500 font-black text-sm">
-                        <TrendingUp size={16} /> +4.2% from last unit
+                      <div className="flex items-center gap-5 text-slate-400 font-black text-[12px]">
+                        <Clock size={20} className="text-blue-400" />
+                        Last Intelligence Scan: {selectedSubject.lastAssessment}
                       </div>
                     </div>
-                    <MasteryRing progress={selectedSubject.progress} />
+                    <CircularProgress
+                      progress={selectedSubject.progress}
+                      size={160}
+                      strokeWidth={14}
+                    />
                   </div>
 
-                  <div className="space-y-4">
-                    <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] ml-4">
-                      Weakness Detection (AI-Detected)
-                    </h4>
+                  <div className="space-y-6">
+                    <h3 className="text-[13px] font-black text-slate-400 px-6 uppercase tracking-[0.2em]">
+                      AI Gap Detection
+                    </h3>
                     {selectedSubject.weakAreas.map((wa, i) => (
                       <div
                         key={i}
-                        className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm flex items-center justify-between"
+                        className="bg-white border border-slate-100 p-8 rounded-[2.5rem] flex items-center justify-between hover:shadow-lg transition-all"
                       >
                         <div className="flex items-center gap-6">
-                          <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-[#2D70FD]">
-                            <Brain size={24} />
+                          <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center text-[#2D70FD]">
+                            <Brain size={28} />
                           </div>
                           <div>
-                            <h5 className="font-black text-slate-800 text-lg">
+                            <h4 className="font-black text-slate-800 text-xl mb-1">
                               {wa.topic}
-                            </h5>
-                            <p className="text-sm font-bold text-slate-400">
+                            </h4>
+                            <p className="text-sm text-slate-500 font-bold leading-relaxed max-w-md">
                               {wa.desc}
                             </p>
                           </div>
                         </div>
-                        <span className="text-[10px] font-black bg-red-50 text-red-500 border border-red-100 px-4 py-2 rounded-full uppercase tracking-widest">
-                          {wa.level}
-                        </span>
                       </div>
                     ))}
                   </div>
                 </div>
 
-                {/* Right Column: Recovery & Print (FR-05) */}
-                <div className="lg:col-span-4 space-y-6">
-                  <div className="bg-white p-8 rounded-[2.5rem] border border-blue-100 shadow-sm">
-                    <h4 className="text-[11px] font-black text-[#2D70FD] mb-6 uppercase tracking-[0.2em]">
-                      Instructor Feedback
+                <aside className="lg:col-span-4 space-y-8">
+                  <div className="bg-white border border-slate-100 rounded-[3rem] p-10 shadow-sm relative overflow-hidden">
+                    <h4 className="text-[13px] font-black text-[#2D70FD] mb-8 uppercase tracking-[0.2em]">
+                      AI Recommend
                     </h4>
-                    <p className="text-base font-bold text-slate-600 leading-relaxed italic">
+                    <p className="text-xl font-black text-slate-700 leading-relaxed relative z-10 mb-8">
                       "{selectedSubject.feedback}"
                     </p>
-                    <div className="mt-6 pt-6 border-t border-slate-50 flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
-                        <User size={20} />
+                    <div className="flex items-center gap-4 pt-8 border-t border-slate-50">
+                      <div>
+                        <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest block">
+                          Instructor
+                        </span>
+                        <span className="text-sm font-black text-slate-800">
+                          {selectedSubject.teacher}
+                        </span>
                       </div>
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                        {selectedSubject.teacher}
-                      </span>
                     </div>
                   </div>
 
-                  <div className="bg-[#2D70FD] p-8 rounded-[2.5rem] shadow-xl shadow-blue-100">
-                    <h4 className="text-[11px] font-black text-blue-100 mb-6 uppercase tracking-[0.2em]">
-                      Recovery Action Items
+                  <div className="bg-white rounded-[3rem] p-10 shadow-2xl shadow-slate-200">
+                    <h4 className="text-[13px] font-black text-blue-400 mb-8 uppercase tracking-[0.2em]">
+                      Recovery Roadmap
                     </h4>
-                    <div className="space-y-3">
-                      {selectedSubject.actions.map((item, i) => (
+                    <div className="space-y-4">
+                      {selectedSubject.actions.map((act, i) => (
                         <div
                           key={i}
-                          className="bg-blue-600/20 border border-blue-400/30 p-4 rounded-2xl flex items-center gap-3 text-white"
+                          className="flex gap-4 items-start p-5 bg-white/5 rounded-2xl border border-white/10 group hover:bg-white/10 transition-colors"
                         >
-                          <CheckCircle size={18} className="text-blue-200" />
-                          <span className="text-xs font-black uppercase tracking-tight">
-                            {item}
+                          <CheckCircle
+                            size={20}
+                            className="text-blue-500 mt-0.5"
+                          />
+                          <span className="text-sm font-black text-slate-700">
+                            {act}
                           </span>
                         </div>
                       ))}
                     </div>
-                    <button className="w-full mt-8 py-4 bg-white text-[#2D70FD] rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-blue-50 transition-all">
-                      <Printer size={18} /> Print Exercises
+                    <button className="w-full mt-5 py-3 bg-[#2D70FD] text-white rounded-2xl font-black text-sm flex items-center justify-center gap-3 hover:bg-blue-600 transition-all active:scale-95 shadow-lg shadow-blue-500/20">
+                      <Printer size={20} /> Generate Assets
                     </button>
                   </div>
-                </div>
+                </aside>
               </div>
             )}
           </div>
