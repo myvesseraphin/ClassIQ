@@ -5,11 +5,11 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import logo from "../assets/logo.png";
 import loginIllustration from "../assets/Login.png";
-import { API_BASE_URL } from "../Utility/API";
 
 const ResetPassword = () => {
   const location = useLocation();
   const navigate = useNavigate();
+
   const [email] = useState(
     location.state?.email || sessionStorage.getItem("resetEmail") || "",
   );
@@ -22,19 +22,20 @@ const ResetPassword = () => {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+
   useEffect(() => {
     if (location.state?.email && location.state?.code) {
       sessionStorage.setItem("resetEmail", location.state.email);
       sessionStorage.setItem("resetCode", location.state.code);
     }
     if (!email || !code) {
-      console.error("ClassIQ Trace: No email or code found. Redirecting...");
       navigate("/login");
     }
   }, [email, code, navigate, location.state]);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
+
     if (password !== confirmPassword) {
       toast.error("Passwords do not match", { position: "top-right" });
       return;
@@ -49,30 +50,8 @@ const ResetPassword = () => {
 
     setLoading(true);
 
-    const payload = {
-      email: email.trim(),
-      code: code.trim(),
-      newPassword: password,
-    };
-
-    console.log("ClassIQ Reset Attempting with:", {
-      ...payload,
-      newPassword: "***",
-    });
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/auth/reset-password`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.msg || "Invalid request. Please try again.");
-      }
-
+    // Simulated local behavior
+    setTimeout(() => {
       sessionStorage.removeItem("resetEmail");
       sessionStorage.removeItem("resetCode");
 
@@ -83,13 +62,7 @@ const ResetPassword = () => {
 
       setSuccess(true);
       setTimeout(() => navigate("/login", { replace: true }), 3000);
-    } catch (err) {
-      toast.error(err.message || "Cannot connect to server.", {
-        position: "top-right",
-        autoClose: 5000,
-      });
-      setLoading(false);
-    }
+    }, 1500);
   };
 
   if (success) {
@@ -152,7 +125,7 @@ const ResetPassword = () => {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
-              <label className="text-sm font-bold text-slate-800 mb-8 text-center">
+              <label className="text-sm font-bold text-slate-800 block">
                 Enter New Password
               </label>
               <div className="relative">
@@ -175,7 +148,7 @@ const ResetPassword = () => {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-bold text-slate-800 mb-8 text-center">
+              <label className="text-sm font-bold text-slate-800 block">
                 Confirm Password
               </label>
               <input

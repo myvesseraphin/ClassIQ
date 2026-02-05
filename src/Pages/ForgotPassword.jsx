@@ -1,34 +1,22 @@
 import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { ChevronLeft, Loader2, Lock } from "lucide-react";
+import { ChevronLeft, Loader2 } from "lucide-react";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import logo from "../assets/logo.png";
 import loginIllustration from "../assets/Login.png";
-import { API_BASE_URL } from "../Utility/API";
 
 const ForgotPassword = () => {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
     setLoading(true);
 
-    try {
-      const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.msg || "Something went wrong. Please try again.");
-      }
-
+    // Simulated local behavior without backend calls
+    setTimeout(() => {
+      setLoading(false);
       toast.success("Recovery email sent! Check your inbox.", {
         position: "top-right",
         autoClose: 4000,
@@ -40,17 +28,7 @@ const ForgotPassword = () => {
       setTimeout(() => {
         navigate("/verify-email", { state: { email } });
       }, 1500);
-    } catch (err) {
-      toast.error(err.message || "Cannot connect to server.", {
-        position: "top-right",
-        autoClose: 5000,
-        hideProgressBar: false,
-        pauseOnHover: true,
-        draggable: true,
-      });
-    } finally {
-      setLoading(false);
-    }
+    }, 1000);
   };
 
   return (
@@ -81,6 +59,7 @@ const ForgotPassword = () => {
           >
             <div className="w-full max-w-sm flex items-center justify-between mb-16 absolute top-12">
               <button
+                type="button"
                 onClick={() => navigate("/login")}
                 className="p-2 -ml-2 hover:bg-slate-50 rounded-full transition-colors"
               >

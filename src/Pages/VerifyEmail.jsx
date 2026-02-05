@@ -5,7 +5,6 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import logo from "../assets/logo.png";
 import loginIllustration from "../assets/Login.png";
-import { API_BASE_URL } from "../Utility/API";
 
 const VerifyEmail = () => {
   const navigate = useNavigate();
@@ -17,6 +16,7 @@ const VerifyEmail = () => {
   const [success, setSuccess] = useState(false);
 
   const email = location.state?.email || "your email";
+
   const handleChange = (element, index) => {
     if (isNaN(element.value)) return;
     const newOtp = otp.map((d, idx) => (idx === index ? element.value : d));
@@ -26,6 +26,7 @@ const VerifyEmail = () => {
       inputRefs.current[index + 1].focus();
     }
   };
+
   const handlePaste = (e) => {
     const data = e.clipboardData.getData("text").trim();
     if (!/^\d{6}$/.test(data)) return;
@@ -33,12 +34,14 @@ const VerifyEmail = () => {
     setOtp(pasteData);
     inputRefs.current[5].focus();
   };
+
   const handleKeyDown = (e, index) => {
     if (e.key === "Backspace" && !otp[index] && index > 0) {
       inputRefs.current[index - 1].focus();
     }
   };
-  const handleVerify = async (e) => {
+
+  const handleVerify = (e) => {
     if (e) e.preventDefault();
     const code = otp.join("");
 
@@ -49,22 +52,9 @@ const VerifyEmail = () => {
 
     setLoading(true);
 
-    try {
-      const response = await fetch(`${API_BASE_URL}/auth/verify-code`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: String(email).trim(),
-          code: String(code).trim(),
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.msg || "Invalid verification code.");
-      }
-
+    // Simulated local verification behavior
+    setTimeout(() => {
+      setLoading(false);
       toast.success("Verification successful! Redirecting...", {
         position: "top-right",
         autoClose: 2000,
@@ -79,14 +69,7 @@ const VerifyEmail = () => {
           }),
         2000,
       );
-    } catch (err) {
-      toast.error(err.message || "Verification failed", {
-        position: "top-right",
-        autoClose: 5000,
-      });
-    } finally {
-      setLoading(false);
-    }
+    }, 1500);
   };
 
   if (success) {
@@ -162,7 +145,7 @@ const VerifyEmail = () => {
               <button
                 type="button"
                 className="text-blue-500 hover:underline"
-                onClick={() => toast.info("Resend feature not implemented yet")}
+                onClick={() => toast.info("Resend code simulated")}
               >
                 Resend
               </button>
