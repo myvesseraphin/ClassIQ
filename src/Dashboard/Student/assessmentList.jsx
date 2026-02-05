@@ -69,7 +69,6 @@ const AssessmentList = () => {
   return (
     <div className="w-full h-full animate-in fade-in duration-500 font-sans">
       <div className="max-w-7xl mx-auto space-y-10">
-        {/* Header + View Toggle */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <h1 className="text-4xl font-black text-slate-900 tracking-tight">
             Performance & Grades
@@ -134,7 +133,6 @@ const AssessmentList = () => {
           ))}
         </div>
 
-        {/* Filters + Search */}
         <div className="flex flex-col lg:flex-row gap-4 items-center justify-between">
           <div className="flex items-center gap-2 overflow-x-auto w-full lg:w-auto pb-2 lg:pb-0 scrollbar-hide">
             {subjects.map((sub) => (
@@ -163,7 +161,6 @@ const AssessmentList = () => {
           </div>
         </div>
 
-        {/* Content */}
         {viewMode === "list" ? (
           <div className="bg-white border border-slate-100 rounded-[2.5rem] overflow-hidden shadow-sm">
             <table className="w-full text-left">
@@ -280,7 +277,6 @@ const AssessmentList = () => {
         )}
       </div>
 
-      {/* Analysis Modal */}
       {selectedTask && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 md:p-12">
           <div

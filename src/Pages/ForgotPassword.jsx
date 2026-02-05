@@ -14,7 +14,6 @@ const ForgotPassword = () => {
     e.preventDefault();
     setLoading(true);
 
-    // Simulated local behavior without backend calls
     setTimeout(() => {
       setLoading(false);
       toast.success("Recovery email sent! Check your inbox.", {

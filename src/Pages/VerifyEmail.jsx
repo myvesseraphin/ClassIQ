@@ -52,7 +52,6 @@ const VerifyEmail = () => {
 
     setLoading(true);
 
-    // Simulated local verification behavior
     setTimeout(() => {
       setLoading(false);
       toast.success("Verification successful! Redirecting...", {

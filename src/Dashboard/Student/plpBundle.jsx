@@ -3,10 +3,8 @@ import {
   BookOpen,
   CheckCircle,
   Download,
-  Zap,
   Printer,
   ArrowLeft,
-  User,
   Clock,
   Search,
   PieChart,
@@ -15,6 +13,15 @@ import {
   List,
   Brain,
 } from "lucide-react";
+
+const FullScreenLoader = () => (
+  <div className="flex flex-col items-center justify-center h-screen w-full bg-slate-50">
+    <div className="relative flex items-center justify-center">
+      <Loader2 className="w-12 h-12 text-[#2D70FD] animate-spin" />
+      <div className="absolute inset-0 scale-150 blur-xl bg-blue-500/10 rounded-full animate-pulse"></div>
+    </div>
+  </div>
+);
 
 const CircularProgress = ({
   progress,
@@ -67,10 +74,20 @@ const CircularProgress = ({
 
 const PLPBundle = () => {
   const [view, setView] = useState("overview");
+  const [isLoading, setIsLoading] = useState(false);
   const [viewMode, setViewMode] = useState("grid");
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("All Subjects");
   const [selectedSubject, setSelectedSubject] = useState(null);
+
+  const handleViewChange = (newView, subject = null) => {
+    setIsLoading(true);
+    setTimeout(() => {
+      if (subject) setSelectedSubject(subject);
+      setView(newView);
+      setIsLoading(false);
+    }, 800);
+  };
 
   const [subjects] = useState([
     {
@@ -137,7 +154,7 @@ const PLPBundle = () => {
     setSelectedSubject(sub);
     setView("detail");
   };
-
+  if (isLoading) return <FullScreenLoader />;
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
       <div className="flex-1 flex flex-col min-w-0 relative">

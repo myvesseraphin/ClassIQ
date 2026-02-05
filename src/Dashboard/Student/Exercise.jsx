@@ -101,7 +101,6 @@ const Exercise = () => {
       <div className="flex-1 flex flex-col min-w-0 relative">
         <main className="flex-1 overflow-y-auto p-8 lg:p-12">
           <div className="max-w-7xl mx-auto space-y-10">
-            {/* Page Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
               <div className="space-y-1">
                 <h1 className="text-4xl font-black text-slate-900 tracking-tight">

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { DayPicker } from "react-day-picker";
 import "react-day-picker/dist/style.css";
 import Img from "../../assets/Seraphin.jpeg";
@@ -16,17 +17,63 @@ import {
   ChevronRight,
   Loader2,
   Plus,
+  Calendar,
+  CheckCircle2,
+  X,
 } from "lucide-react";
 
 const StudentHome = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [loading, setLoading] = useState(true);
+  const [showAddTask, setShowAddTask] = useState(false);
+  const [tasks, setTasks] = useState([
+    {
+      id: 1,
+      title: "Complete Python Assignment",
+      due: "2024-02-10",
+      completed: false,
+    },
+    {
+      id: 2,
+      title: "Study for Chemistry Exam",
+      due: "2024-02-15",
+      completed: true,
+    },
+  ]);
+  const [taskTitle, setTaskTitle] = useState("");
+  const [taskDue, setTaskDue] = useState("");
+  const navigate = useNavigate();
 
   useEffect(() => {
     const timer = setTimeout(() => setLoading(false), 800);
     return () => clearTimeout(timer);
   }, []);
+
+  const addTask = () => {
+    if (taskTitle.trim()) {
+      const newTask = {
+        id: tasks.length + 1,
+        title: taskTitle,
+        due: taskDue || new Date().toISOString().split("T")[0],
+        completed: false,
+      };
+      setTasks([...tasks, newTask]);
+      setTaskTitle("");
+      setTaskDue("");
+      setShowAddTask(false);
+    }
+  };
+
+  const toggleTask = (id) => {
+    setTasks(
+      tasks.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t)),
+    );
+  };
+
+  const deleteTask = (id) => {
+    setTasks(tasks.filter((t) => t.id !== id));
+  };
 
   const studentData = {
     name: "MANZI SHIMWA Yves Seraphin",
@@ -114,7 +161,10 @@ const StudentHome = () => {
                 className="w-full bg-white border border-slate-100 py-3 pl-12 pr-4 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 shadow-sm transition-all"
               />
             </div>
-            <button className="p-3 bg-white border border-slate-100 rounded-2xl text-slate-400 hover:text-blue-600 shadow-sm relative transition-all active:scale-90">
+            <button
+              onClick={() => navigate("/student/notifications")}
+              className="p-3 bg-white border border-slate-100 rounded-2xl text-slate-400 hover:text-blue-600 shadow-sm relative transition-all active:scale-90"
+            >
               <Bell size={20} />
               <span className="absolute top-2 right-2 w-2 h-2 bg-blue-600 rounded-full border-2 border-white"></span>
             </button>
@@ -339,7 +389,10 @@ const StudentHome = () => {
               <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">
                 Schedule
               </h3>
-              <button className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center active:scale-75 transition-transform">
+              <button
+                onClick={() => setShowAddTask(true)}
+                className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center active:scale-75 transition-transform"
+              >
                 <Plus size={18} />
               </button>
             </div>
@@ -359,9 +412,151 @@ const StudentHome = () => {
                 </div>
               ))}
             </div>
+
+            <div className="pt-4 border-t border-slate-100 space-y-4">
+              <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">
+                Tasks
+              </h3>
+              <div className="space-y-3 max-h-64 overflow-y-auto no-scrollbar">
+                {tasks.length === 0 ? (
+                  <p className="text-xs text-slate-400 text-center py-6">
+                    No tasks yet
+                  </p>
+                ) : (
+                  tasks.map((task) => (
+                    <div
+                      key={task.id}
+                      className="p-4 bg-slate-50 border border-slate-100 rounded-xl hover:border-blue-200 transition-all group"
+                    >
+                      <div className="flex items-start gap-3">
+                        <button
+                          onClick={() => toggleTask(task.id)}
+                          className="mt-0.5 flex-shrink-0"
+                        >
+                          <CheckCircle2
+                            size={18}
+                            className={
+                              task.completed
+                                ? "text-green-600 fill-green-50"
+                                : "text-slate-300"
+                            }
+                          />
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <p
+                            className={`text-[13px] font-bold transition-all ${task.completed ? "line-through text-slate-400" : "text-slate-800"}`}
+                          >
+                            {task.title}
+                          </p>
+                          <p className="text-[11px] text-slate-400 mt-1">
+                            {task.due}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => deleteTask(task.id)}
+                          className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-slate-300 hover:text-red-600"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-100 space-y-3">
+              <p className="text-xs font-black text-slate-400 uppercase tracking-wider">
+                Quick Access
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => navigate("/student/schedule")}
+                  className="flex-1 p-4 bg-gradient-to-br from-blue-50 to-blue-100/50 border border-blue-200 rounded-xl hover:shadow-md transition-all active:scale-95 text-center"
+                >
+                  <Calendar size={20} className="mx-auto mb-2 text-blue-600" />
+                  <span className="text-[11px] font-black text-blue-700 uppercase tracking-wide">
+                    Timetable
+                  </span>
+                </button>
+                <button
+                  onClick={() => navigate("/student/tasks")}
+                  className="flex-1 p-4 bg-gradient-to-br from-purple-50 to-purple-100/50 border border-purple-200 rounded-xl hover:shadow-md transition-all active:scale-95 text-center"
+                >
+                  <CheckCircle2
+                    size={20}
+                    className="mx-auto mb-2 text-purple-600"
+                  />
+                  <span className="text-[11px] font-black text-purple-700 uppercase tracking-wide">
+                    Tasks
+                  </span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
+
+      {showAddTask && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-12 bg-black/20 backdrop-blur-sm">
+          <div className="relative bg-white w-full max-w-md rounded-[2rem] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
+            <div className="p-8 space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-black text-slate-900">Add Task</h2>
+                <button
+                  onClick={() => setShowAddTask(false)}
+                  className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  <X size={20} className="text-slate-400" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-black text-slate-700 uppercase tracking-wider block mb-2">
+                    Task Title
+                  </label>
+                  <input
+                    type="text"
+                    value={taskTitle}
+                    onChange={(e) => setTaskTitle(e.target.value)}
+                    placeholder="Enter task title..."
+                    className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
+                    onKeyPress={(e) => e.key === "Enter" && addTask()}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-black text-slate-700 uppercase tracking-wider block mb-2">
+                    Due Date
+                  </label>
+                  <input
+                    type="date"
+                    value={taskDue}
+                    onChange={(e) => setTaskDue(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowAddTask(false)}
+                  className="flex-1 px-4 py-3 border border-slate-200 rounded-xl font-black text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={addTask}
+                  className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl font-black text-sm hover:bg-blue-700 transition-colors active:scale-95"
+                >
+                  Add Task
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

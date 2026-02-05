@@ -50,7 +50,6 @@ const ResetPassword = () => {
 
     setLoading(true);
 
-    // Simulated local behavior
     setTimeout(() => {
       sessionStorage.removeItem("resetEmail");
       sessionStorage.removeItem("resetCode");
