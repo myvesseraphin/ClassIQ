@@ -13,6 +13,7 @@ import PLPBundle from "./Dashboard/Student/plpBundle";
 import Exercise from "./Dashboard/Student/Exercise";
 import AssessmentList from "./Dashboard/Student/assessmentList";
 import Resources from "./Dashboard/Student/Resources";
+import MyCourses from "./Dashboard/Student/MyCourses";
 import StudentProfile from "./Dashboard/Student/studentProfile";
 import Notifications from "./Dashboard/Student/Notifications";
 import Tasks from "./Dashboard/Student/Tasks";
@@ -83,6 +84,7 @@ function App() {
         >
           <Route index element={<StudentHome />} />
           <Route path="plp" element={<PLPBundle />} />
+          <Route path="my-courses" element={<MyCourses />} />
           <Route path="notifications" element={<Notifications />} />
           <Route path="assessments" element={<AssessmentList />} />
           <Route path="exercise" element={<Exercise />} />

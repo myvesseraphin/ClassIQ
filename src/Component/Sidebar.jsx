@@ -4,6 +4,7 @@ import logo from "../assets/logo.png";
 import {
   LayoutGrid,
   BookOpen,
+  GraduationCap,
   FileText,
   Brain,
   Library,
@@ -30,6 +31,11 @@ const Sidebar = () => {
       icon: <BookOpen size={22} strokeWidth={2.5} />,
       label: "My PLP",
       path: "/student/plp",
+    },
+    {
+      icon: <GraduationCap size={22} strokeWidth={2.5} />,
+      label: "My Courses",
+      path: "/student/my-courses",
     },
     {
       icon: <Library size={22} strokeWidth={2.5} />,
