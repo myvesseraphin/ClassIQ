@@ -1,3 +1,24 @@
 @theme {
 }
 @import "tailwindcss";
+@keyframes float {
+  0% {
+    transform: translateY(0px) translateX(0px);
+    opacity: 0.6;
+  }
+  50% {
+    transform: translateY(-20px) translateX(10px);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(0px) translateX(0px);
+    opacity: 0.6;
+  }
+}
+.particle {
+  position: absolute;
+  background-color: #1877F2;
+  border-radius: 50%;
+  filter: blur(1px);
+  animation: float 5s ease-in-out infinite; 
+}

@@ -30,6 +30,140 @@ const Hero = () => {
               className="w-full h-full object-contain"
             />
           </div>
+
+          <div className="absolute inset-0 z-15 pointer-events-none">
+            <span
+              className="particle"
+              style={{
+                top: "6%",
+                left: "-6%",
+                width: 12,
+                height: 12,
+                animationDelay: "0s",
+              }}
+            />
+            <span
+              className="particle"
+              style={{
+                top: "20%",
+                left: "-10%",
+                width: 18,
+                height: 18,
+                animationDelay: "0.6s",
+              }}
+            />
+            <span
+              className="particle"
+              style={{
+                top: "40%",
+                left: "-4%",
+                width: 10,
+                height: 10,
+                animationDelay: "1.2s",
+              }}
+            />
+            <span
+              className="particle"
+              style={{
+                top: "-6%",
+                left: "72%",
+                width: 14,
+                height: 14,
+                animationDelay: "0.3s",
+              }}
+            />
+            <span
+              className="particle"
+              style={{
+                top: "-10%",
+                left: "88%",
+                width: 10,
+                height: 10,
+                animationDelay: "1s",
+              }}
+            />
+            <span
+              className="particle"
+              style={{
+                top: "60%",
+                left: "102%",
+                width: 20,
+                height: 20,
+                animationDelay: "0.4s",
+              }}
+            />
+            <span
+              className="particle"
+              style={{
+                top: "72%",
+                left: "110%",
+                width: 12,
+                height: 12,
+                animationDelay: "0.8s",
+              }}
+            />
+            <span
+              className="particle"
+              style={{
+                top: "50%",
+                left: "95%",
+                width: 16,
+                height: 16,
+                animationDelay: "1.6s",
+              }}
+            />
+            <span
+              className="particle"
+              style={{
+                top: "92%",
+                left: "10%",
+                width: 14,
+                height: 14,
+                animationDelay: "0.9s",
+              }}
+            />
+            <span
+              className="particle"
+              style={{
+                top: "82%",
+                left: "36%",
+                width: 10,
+                height: 10,
+                animationDelay: "1.4s",
+              }}
+            />
+            <span
+              className="particle"
+              style={{
+                top: "48%",
+                left: "60%",
+                width: 8,
+                height: 8,
+                animationDelay: "2s",
+              }}
+            />
+            <span
+              className="particle"
+              style={{
+                top: "28%",
+                left: "84%",
+                width: 12,
+                height: 12,
+                animationDelay: "1.1s",
+              }}
+            />
+            <span
+              className="particle"
+              style={{
+                top: "14%",
+                left: "60%",
+                width: 9,
+                height: 9,
+                animationDelay: "1.8s",
+              }}
+            />
+          </div>
+
           <div className="absolute -bottom-12 -right-8 w-[38%] h-[70%] z-20 transition-transform hover:scale-105 duration-500">
             <img
               src={phone}
