@@ -2,6 +2,9 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import path from "path";
+import helmet from "helmet";
+import cookieParser from "cookie-parser";
+import { ensureCsrfCookie, requireCsrf } from "./middleware/csrf.js";
 import authRoutes from "./routes/auth.js";
 import studentRoutes from "./routes/student.js";
 import uploadRoutes from "./routes/uploads.js";
@@ -10,18 +13,36 @@ import libraryRoutes from "./routes/library.js";
 dotenv.config();
 
 const app = express();
+app.set("trust proxy", 1);
 
 const allowedOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(",").map((origin) => origin.trim())
-  : ["*"];
+  : [];
+
+if (process.env.NODE_ENV === "production" && allowedOrigins.length === 0) {
+  throw new Error("CORS_ORIGIN must be set in production.");
+}
 
 app.use(
+  helmet({
+    contentSecurityPolicy: process.env.NODE_ENV === "production" ? undefined : false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  }),
+);
+app.use(
   cors({
-    origin: allowedOrigins,
-    credentials: false,
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.length === 0) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
   }),
 );
 app.use(express.json({ limit: "1mb" }));
+app.use(cookieParser());
+app.use(ensureCsrfCookie);
 app.use("/uploads", express.static(path.resolve("uploads")));
 
 app.get("/api/health", (req, res) => {
@@ -29,12 +50,13 @@ app.get("/api/health", (req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
-app.use("/api/student", studentRoutes);
-app.use("/api/uploads", uploadRoutes);
-app.use("/api/library", libraryRoutes);
+app.use("/api/student", requireCsrf, studentRoutes);
+app.use("/api/uploads", requireCsrf, uploadRoutes);
+app.use("/api/library", requireCsrf, libraryRoutes);
 
 app.use((err, req, res, next) => {
-  const status = err.status || 500;
+  const status =
+    err?.message === "Not allowed by CORS" ? 403 : err.status || 500;
   res.status(status).json({
     error: err.message || "Unexpected server error.",
   });

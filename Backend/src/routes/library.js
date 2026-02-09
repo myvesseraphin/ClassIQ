@@ -3,6 +3,8 @@ import multer from "multer";
 import path from "path";
 import { query } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
+import { uploadLimiter } from "../middleware/rateLimit.js";
+import { logAudit } from "../utils/audit.js";
 
 const router = express.Router();
 router.use(requireAuth);
@@ -14,6 +16,32 @@ const upload = multer({
 
 const SUPABASE_BUCKET = "Books";
 const SUPABASE_FOLDER = "public";
+
+const ALLOWED_MIME_TYPES = new Set([
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "text/plain",
+]);
+
+const ALLOWED_EXTENSIONS = new Set([
+  ".pdf",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".doc",
+  ".docx",
+  ".ppt",
+  ".pptx",
+  ".txt",
+]);
 
 const sanitizeFilename = (value) =>
   String(value || "resource")
@@ -224,7 +252,11 @@ router.get("/resources", async (req, res, next) => {
   }
 });
 
-router.post("/resources", upload.single("file"), async (req, res, next) => {
+router.post(
+  "/resources",
+  uploadLimiter,
+  upload.single("file"),
+  async (req, res, next) => {
   try {
     const { name, subject, resourceDate, levels } = req.body || {};
     if (!name || !subject) {
@@ -232,6 +264,13 @@ router.post("/resources", upload.single("file"), async (req, res, next) => {
     }
     if (!req.file) {
       return res.status(400).json({ error: "file is required." });
+    }
+    if (!ALLOWED_MIME_TYPES.has(req.file.mimetype)) {
+      return res.status(400).json({ error: "Unsupported file type." });
+    }
+    const ext = path.extname(req.file.originalname || "").toLowerCase();
+    if (ext && !ALLOWED_EXTENSIONS.has(ext)) {
+      return res.status(400).json({ error: "Unsupported file extension." });
     }
 
     const levelList = normalizeLevels(levels);
@@ -242,11 +281,12 @@ router.post("/resources", upload.single("file"), async (req, res, next) => {
     }
 
     const { bucket, filePath } = await uploadToSupabase(req.file);
-    const ext = path.extname(req.file.originalname || "")
+    const extLabel = path
+      .extname(req.file.originalname || "")
       .replace(".", "")
       .toUpperCase();
     const type =
-      ext || req.file.mimetype?.split("/")?.[1]?.toUpperCase() || "FILE";
+      extLabel || req.file.mimetype?.split("/")?.[1]?.toUpperCase() || "FILE";
     const size = formatBytes(req.file.size);
 
     const { rows } = await query(
@@ -275,6 +315,11 @@ router.post("/resources", upload.single("file"), async (req, res, next) => {
     );
 
     const row = rows[0];
+    await logAudit(req, "library_resource_upload", {
+      resourceId: row.id,
+      name: row.name,
+      subject: row.subject,
+    });
     return res.status(201).json({
       resource: {
         id: row.id,
@@ -330,6 +375,11 @@ router.patch("/resources/:id", async (req, res, next) => {
     }
 
     const row = rows[0];
+    await logAudit(req, "library_resource_update", {
+      resourceId: row.id,
+      name: row.name,
+      subject: row.subject,
+    });
     return res.json({
       resource: {
         id: row.id,
@@ -369,6 +419,7 @@ router.delete("/resources/:id", async (req, res, next) => {
       id,
       req.user.id,
     ]);
+    await logAudit(req, "library_resource_delete", { resourceId: id });
 
     return res.json({ success: true });
   } catch (error) {

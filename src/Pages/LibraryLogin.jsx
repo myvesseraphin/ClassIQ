@@ -30,7 +30,6 @@ const LibraryLogin = () => {
     setLoading(true);
     try {
       const { data } = await api.post("/auth/login", formData);
-      localStorage.setItem("token", data.token);
       localStorage.setItem("classiq_user", JSON.stringify(data.user));
       navigate("/library");
     } catch (err) {
@@ -38,6 +37,11 @@ const LibraryLogin = () => {
         err.response?.data?.error || "Unable to sign in. Please try again.";
       showNotification(message);
       toast.error(message);
+      if (err.response?.status === 403) {
+        navigate("/verify-email", {
+          state: { email: formData.email, mode: "email" },
+        });
+      }
     } finally {
       setLoading(false);
     }

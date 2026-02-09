@@ -2,8 +2,12 @@ import express from "express";
 import fs from "fs";
 import path from "path";
 import multer from "multer";
+import { requireAuth } from "../middleware/auth.js";
+import { uploadLimiter } from "../middleware/rateLimit.js";
+import { logAudit } from "../utils/audit.js";
 
 const router = express.Router();
+router.use(requireAuth);
 const uploadDir = path.resolve("uploads");
 
 fs.mkdirSync(uploadDir, { recursive: true });
@@ -24,12 +28,22 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype?.startsWith("image/")) {
+      return cb(new Error("Only image uploads are allowed."));
+    }
+    return cb(null, true);
+  },
 });
 
-router.post("/", upload.single("file"), (req, res) => {
+router.post("/", uploadLimiter, upload.single("file"), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "File is required." });
   }
+
+  await logAudit(req, "profile_image_upload", {
+    filename: req.file.filename,
+  });
 
   return res.json({
     file: {

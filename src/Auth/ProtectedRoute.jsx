@@ -3,8 +3,7 @@ import { Navigate, useLocation } from "react-router-dom";
 const ProtectedRoute = ({ children, allowedRoles, redirectTo = "/login" }) => {
   const location = useLocation();
   const user = JSON.parse(localStorage.getItem("classiq_user"));
-  const token = localStorage.getItem("token");
-  const isAuthenticated = !!user && !!token;
+  const isAuthenticated = !!user;
   const userRole = user?.role;
 
   if (!isAuthenticated) {

@@ -102,17 +102,14 @@ const StudentProfile = () => {
     try {
       const uploadData = new FormData();
       uploadData.append("file", file);
-      const { data: upload } = await api.post("/uploads", uploadData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      const avatarUrl = upload?.file?.url;
-      if (!avatarUrl) {
+      const { data: profile } = await api.post(
+        "/student/profile/avatar",
+        uploadData,
+      );
+      const nextUrl = resolveMediaUrl(profile?.user?.avatarUrl);
+      if (!nextUrl) {
         throw new Error("Upload failed.");
       }
-      const { data: profile } = await api.patch("/student/profile", {
-        avatarUrl,
-      });
-      const nextUrl = resolveMediaUrl(profile?.user?.avatarUrl || avatarUrl);
       setCurrentProfileImage(nextUrl);
       showNotification("Profile image updated!");
     } catch (err) {
@@ -157,6 +154,7 @@ const StudentProfile = () => {
   };
 
   const handleLogout = () => {
+    api.post("/auth/logout").catch(() => {});
     localStorage.clear();
     navigate("/login");
   };

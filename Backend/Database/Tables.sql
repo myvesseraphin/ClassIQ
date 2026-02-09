@@ -1,4 +1,4 @@
--- ClassIQ Supabase schema and seed data
+-- ClassIQ Supabase schema (tables, indexes)
 -- Run in Supabase SQL editor.
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
   email text NOT NULL UNIQUE,
   password_hash text NOT NULL,
   role text NOT NULL CHECK (role IN ('student', 'teacher', 'admin')),
+  email_verified boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -259,5 +260,25 @@ CREATE TABLE IF NOT EXISTS password_resets (
   token text NOT NULL UNIQUE,
   expires_at timestamptz NOT NULL,
   used_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS email_verifications (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  code text NOT NULL,
+  token text NOT NULL UNIQUE,
+  expires_at timestamptz NOT NULL,
+  verified_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+  action text NOT NULL,
+  context jsonb,
+  ip text,
+  user_agent text,
   created_at timestamptz NOT NULL DEFAULT now()
 );

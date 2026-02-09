@@ -74,7 +74,7 @@ const Impact = () => {
               <span className="text-slate-500 font-bold">
                 Software As Service
               </span>{" "}
-              provided as a ‘school information management system’ with a
+              provided as a 'school information management system' with a
               tripartite user base.
             </p>
 
@@ -108,7 +108,7 @@ const Impact = () => {
         </svg>
       </div>
 
-      <style jsx>{`
+      <style>{`
         @keyframes float {
           0%,
           100% {
@@ -155,3 +155,4 @@ const Impact = () => {
 };
 
 export default Impact;
+

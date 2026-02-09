@@ -8,13 +8,15 @@ const JWT_SECRET = process.env.JWT_SECRET || "dev_secret_change_me";
 export const requireAuth = (req, res, next) => {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+  const cookieToken = req.cookies?.classiq_token;
+  const resolvedToken = token || cookieToken;
 
-  if (!token) {
+  if (!resolvedToken) {
     return res.status(401).json({ error: "Missing authorization token." });
   }
 
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
+    const payload = jwt.verify(resolvedToken, JWT_SECRET);
     req.user = { id: payload.sub, role: payload.role };
     return next();
   } catch (error) {

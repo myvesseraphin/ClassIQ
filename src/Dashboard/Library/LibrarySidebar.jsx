@@ -2,11 +2,13 @@ import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import logo from "../../assets/logo.png";
 import { LayoutGrid, Library, LogOut, ArrowLeft } from "lucide-react";
+import api from "../../api/client";
 
 const LibrarySidebar = () => {
   const navigate = useNavigate();
 
   const handleLogout = () => {
+    api.post("/auth/logout").catch(() => {});
     localStorage.clear();
     navigate("/library-login");
   };

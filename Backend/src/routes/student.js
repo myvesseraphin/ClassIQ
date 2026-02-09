@@ -1,14 +1,46 @@
 import express from "express";
 import dotenv from "dotenv";
+import fs from "fs";
+import path from "path";
+import multer from "multer";
 import PDFDocument from "pdfkit";
 import { query } from "../db.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
+import { uploadLimiter } from "../middleware/rateLimit.js";
+import { logAudit } from "../utils/audit.js";
 
 dotenv.config();
 
 const router = express.Router();
 
-router.use(requireAuth);
+router.use(requireAuth, requireRole(["student"]));
+
+const uploadDir = path.resolve("uploads");
+fs.mkdirSync(uploadDir, { recursive: true });
+
+const avatarStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadDir),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const safeBase = path
+      .basename(file.originalname, ext)
+      .replace(/[^a-z0-9-_]+/gi, "_")
+      .slice(0, 40);
+    const stamp = Date.now();
+    cb(null, `${safeBase || "avatar"}-${stamp}${ext}`);
+  },
+});
+
+const avatarUpload = multer({
+  storage: avatarStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype?.startsWith("image/")) {
+      return cb(new Error("Only image uploads are allowed."));
+    }
+    return cb(null, true);
+  },
+});
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const UUID_REGEX =
@@ -134,6 +166,41 @@ router.get("/profile", async (req, res, next) => {
     return next(error);
   }
 });
+
+router.post(
+  "/profile/avatar",
+  uploadLimiter,
+  avatarUpload.single("file"),
+  async (req, res, next) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "File is required." });
+      }
+
+      const avatarUrl = `/uploads/${req.file.filename}`;
+      const { rows } = await query(
+        `UPDATE user_profiles
+            SET avatar_url = $2,
+                updated_at = now()
+          WHERE user_id = $1
+        RETURNING avatar_url AS "avatarUrl"`,
+        [req.user.id, avatarUrl],
+      );
+
+      if (!rows[0]) {
+        return res.status(404).json({ error: "Profile not found." });
+      }
+
+      await logAudit(req, "profile_image_upload", {
+        filename: req.file.filename,
+      });
+
+      return res.json({ user: rows[0] });
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
 
 router.patch("/profile", async (req, res, next) => {
   try {

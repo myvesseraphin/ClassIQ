@@ -12,11 +12,13 @@ import {
   Settings,
   LogOut,
 } from "lucide-react";
+import api from "../api/client";
 
 const Sidebar = () => {
   const navigate = useNavigate();
 
   const handleLogout = () => {
+    api.post("/auth/logout").catch(() => {});
     localStorage.clear();
     navigate("/login");
   };

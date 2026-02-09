@@ -6,6 +6,9 @@ import nodemailer from "nodemailer";
 import dotenv from "dotenv";
 import { query } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
+import { requireCsrf } from "../middleware/csrf.js";
+import { authLimiter, resetLimiter } from "../middleware/rateLimit.js";
+import { logAudit } from "../utils/audit.js";
 
 dotenv.config();
 
@@ -13,6 +16,8 @@ const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "dev_secret_change_me";
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
 const RESET_TTL_MINUTES = Number(process.env.RESET_TOKEN_TTL_MINUTES || 15);
+const REQUIRE_EMAIL_VERIFICATION =
+  process.env.REQUIRE_EMAIL_VERIFICATION === "true";
 const RETURN_RESET_TOKEN =
   process.env.RETURN_RESET_TOKEN === "true" ||
   process.env.NODE_ENV !== "production";
@@ -41,7 +46,98 @@ const buildUserResponse = (row) => ({
   role: row.role,
   firstName: row.firstName || null,
   lastName: row.lastName || null,
+  emailVerified: row.emailVerified ?? null,
 });
+
+const isValidEmail = (email) =>
+  typeof email === "string" &&
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+
+const validatePassword = (password) => {
+  if (typeof password !== "string") return false;
+  const value = password.trim();
+  if (value.length < 8) return false;
+  if (!/[A-Z]/.test(value)) return false;
+  if (!/[a-z]/.test(value)) return false;
+  if (!/[0-9]/.test(value)) return false;
+  if (!/[^A-Za-z0-9]/.test(value)) return false;
+  return true;
+};
+
+const getCookieOptions = () => {
+  const isProduction = process.env.NODE_ENV === "production";
+  return {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: isProduction,
+    path: "/",
+  };
+};
+
+const sendVerifyEmail = async (email, code, firstName) => {
+  if (!mailer) return false;
+  const greetingName = firstName || "User";
+  const verificationCode = code;
+  await mailer.sendMail({
+    from: SMTP_FROM,
+    to: email,
+    subject: "Verify your ClassIQ account",
+    text: `Hello ${greetingName}, your ClassIQ verification code is: ${verificationCode}.`,
+    html: `<div style="background-color: #FDFDFD; padding: 60px 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+      <div style="max-width: 500px; margin: 0 auto; text-align: center;">
+        <div style="margin-bottom: 40px;">
+          <img src="https://icnbcqeehlnyicfmpmkg.supabase.co/storage/v1/object/public/Books/public/logo.png" alt="ClassIQ" style="height: 42px; width: auto; display: block; margin: 0 auto;" />
+        </div>
+        <div style="margin-bottom: 32px;">
+          <svg width="60" height="60" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin: 0 auto;">
+            <path d="M12 2L3 7V12C3 18 12 22 12 22C12 22 21 18 21 12V7L12 2Z" fill="#1877F2" fill-opacity="0.05"/>
+            <path d="M12 2L3 7V12C3 18 12 22 12 22C12 22 21 18 21 12V7L12 2Z" stroke="#0f172a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M9 12L11 14L15 10" stroke="#1877F2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h2 style="font-size: 26px; font-weight: 800; color: #0f172a; margin: 0 0 12px 0; letter-spacing: -0.03em;">
+          Hello, ${greetingName}
+        </h2>
+        <p style="font-size: 15px; color: #475569; line-height: 1.6; margin-bottom: 40px; max-width: 380px; margin-left: auto; margin-right: auto;">
+          Use the verification code below to confirm your ClassIQ account.
+        </p>
+        <div style="margin-bottom: 40px;">
+          <p style="font-size: 10px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.4em; margin-bottom: 16px;">
+            Security Code
+          </p>
+          <div style="display: inline-block; padding: 20px 44px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 24px; box-shadow: 0 10px 20px rgba(0,0,0,0.02);">
+            <span style="font-size: 48px; font-weight: 900; letter-spacing: 0.15em; color: #1877F2; font-variant-numeric: tabular-nums;">
+              ${verificationCode}
+            </span>
+          </div>
+        </div>
+        <div style="max-width: 400px; margin: 0 auto 48px; padding: 24px; background: #f8fafc; border-radius: 24px; border: 1px solid #f1f5f9;">
+          <p style="font-size: 13px; color: #0f172a; line-height: 1.5; margin: 0;">
+            <strong>Secure Practice:</strong> Never share this code. If you didn't request this, no further action is required.
+          </p>
+        </div>
+        <div style="border-top: 1px solid #f1f5f9; padding-top: 40px;">
+          <p style="font-size: 10px; font-weight: 800; color: #94a3b8; letter-spacing: 0.2em;">
+            ClassIQ <span style="color: #1877F2;">Data Driven Success</span>
+          </p>
+        </div>
+      </div>
+    </div>`,
+  });
+  return true;
+};
+
+const createEmailVerification = async (userId) => {
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const token = crypto.randomUUID();
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+  await query(
+    `INSERT INTO email_verifications (user_id, code, token, expires_at)
+     VALUES ($1, $2, $3, $4)`,
+    [userId, code, token, expiresAt],
+  );
+  return { code, token };
+};
 
 const sendResetEmail = async (email, code, firstName) => {
   if (!mailer) return false;
@@ -96,15 +192,16 @@ const sendResetEmail = async (email, code, firstName) => {
   return true;
 };
 
-router.post("/login", async (req, res, next) => {
+router.post("/login", authLimiter, async (req, res, next) => {
   try {
     const { email, password } = req.body || {};
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email and password required." });
+    if (!isValidEmail(email) || !password) {
+      return res.status(400).json({ error: "Valid email and password required." });
     }
 
     const { rows } = await query(
       `SELECT u.id, u.email, u.role, u.password_hash AS "passwordHash",
+              u.email_verified AS "emailVerified",
               p.first_name AS "firstName", p.last_name AS "lastName"
          FROM users u
          LEFT JOIN user_profiles p ON p.user_id = u.id
@@ -114,38 +211,62 @@ router.post("/login", async (req, res, next) => {
 
     const user = rows[0];
     if (!user) {
+      await logAudit(req, "login_failed", { email });
       return res.status(401).json({ error: "Invalid credentials." });
     }
 
     const match = await bcrypt.compare(password, user.passwordHash);
     if (!match) {
+      await logAudit(req, "login_failed", { email });
       return res.status(401).json({ error: "Invalid credentials." });
+    }
+
+    if (REQUIRE_EMAIL_VERIFICATION && !user.emailVerified) {
+      try {
+        const verification = await createEmailVerification(user.id);
+        await sendVerifyEmail(email, verification.code, user.firstName);
+      } catch (mailError) {
+        console.error("Failed to send verification email", mailError);
+      }
+      return res.status(403).json({
+        error: "Email not verified. Please check your inbox.",
+      });
     }
 
     const token = jwt.sign({ sub: user.id, role: user.role }, JWT_SECRET, {
       expiresIn: JWT_EXPIRES_IN,
     });
 
-    return res.json({ token, user: buildUserResponse(user) });
+    res.cookie("classiq_token", token, getCookieOptions());
+    await logAudit(req, "login_success", { userId: user.id });
+    return res.json({ user: buildUserResponse(user) });
   } catch (error) {
     return next(error);
   }
 });
 
-router.post("/register", async (req, res, next) => {
+router.post("/register", authLimiter, async (req, res, next) => {
   try {
     const { email, password, firstName, lastName, role } = req.body || {};
-    if (!email || !password || !firstName || !lastName) {
+    if (!isValidEmail(email) || !password || !firstName || !lastName) {
       return res.status(400).json({ error: "Missing required fields." });
+    }
+    if (!validatePassword(password)) {
+      return res.status(400).json({
+        error:
+          "Password must be at least 8 characters and include upper, lower, number, and symbol.",
+      });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
 
+    const normalizedRole =
+      role && ["student", "teacher"].includes(role) ? role : "student";
     const { rows: inserted } = await query(
-      `INSERT INTO users (email, password_hash, role)
+      `INSERT INTO users (email, password_hash, role, email_verified)
        VALUES ($1, $2, $3)
-       RETURNING id, email, role`,
-      [email, passwordHash, role || "student"],
+       RETURNING id, email, role, email_verified AS "emailVerified"`,
+      [email, passwordHash, normalizedRole, false],
     );
 
     const user = inserted[0];
@@ -155,11 +276,25 @@ router.post("/register", async (req, res, next) => {
       [user.id, firstName, lastName],
     );
 
+    if (REQUIRE_EMAIL_VERIFICATION) {
+      try {
+        const verification = await createEmailVerification(user.id);
+        await sendVerifyEmail(email, verification.code, firstName);
+      } catch (mailError) {
+        console.error("Failed to send verification email", mailError);
+      }
+      return res.status(201).json({
+        message: "Account created. Please verify your email to continue.",
+      });
+    }
+
     const token = jwt.sign({ sub: user.id, role: user.role }, JWT_SECRET, {
       expiresIn: JWT_EXPIRES_IN,
     });
-
-    return res.status(201).json({ token, user: { ...user, firstName, lastName } });
+    res.cookie("classiq_token", token, getCookieOptions());
+    return res.status(201).json({
+      user: { ...user, firstName, lastName, emailVerified: user.emailVerified },
+    });
   } catch (error) {
     if (error.code === "23505") {
       return res.status(409).json({ error: "Email already exists." });
@@ -172,6 +307,7 @@ router.get("/me", requireAuth, async (req, res, next) => {
   try {
     const { rows } = await query(
       `SELECT u.id, u.email, u.role,
+              u.email_verified AS "emailVerified",
               p.first_name AS "firstName", p.last_name AS "lastName"
          FROM users u
          LEFT JOIN user_profiles p ON p.user_id = u.id
@@ -189,10 +325,10 @@ router.get("/me", requireAuth, async (req, res, next) => {
   }
 });
 
-router.post("/request-password-reset", async (req, res, next) => {
+router.post("/request-password-reset", resetLimiter, async (req, res, next) => {
   try {
     const { email } = req.body || {};
-    if (!email) {
+    if (!isValidEmail(email)) {
       return res.status(400).json({ error: "Email is required." });
     }
 
@@ -229,6 +365,7 @@ router.post("/request-password-reset", async (req, res, next) => {
     } catch (mailError) {
       console.error("Failed to send reset email", mailError);
     }
+    await logAudit(req, "password_reset_requested", { email });
     if (RETURN_RESET_TOKEN) {
       response.dev = { code, resetToken: token };
     }
@@ -238,10 +375,10 @@ router.post("/request-password-reset", async (req, res, next) => {
   }
 });
 
-router.post("/verify-reset-code", async (req, res, next) => {
+router.post("/verify-reset-code", resetLimiter, async (req, res, next) => {
   try {
     const { email, code } = req.body || {};
-    if (!email || !code) {
+    if (!isValidEmail(email) || !code) {
       return res.status(400).json({ error: "Email and code are required." });
     }
 
@@ -272,7 +409,7 @@ router.post("/verify-reset-code", async (req, res, next) => {
   }
 });
 
-router.post("/reset-password", async (req, res, next) => {
+router.post("/reset-password", resetLimiter, async (req, res, next) => {
   try {
     const { resetToken, newPassword } = req.body || {};
     if (!resetToken || !newPassword) {
@@ -297,6 +434,13 @@ router.post("/reset-password", async (req, res, next) => {
       return res.status(400).json({ error: "Reset token expired." });
     }
 
+    if (!validatePassword(newPassword)) {
+      return res.status(400).json({
+        error:
+          "Password must be at least 8 characters and include upper, lower, number, and symbol.",
+      });
+    }
+
     const passwordHash = await bcrypt.hash(newPassword, 10);
     await query(`UPDATE users SET password_hash = $1 WHERE id = $2`, [
       passwordHash,
@@ -315,7 +459,89 @@ router.post("/reset-password", async (req, res, next) => {
       ],
     );
 
+    await logAudit(req, "password_reset_success", { userId: reset.userId });
     return res.json({ message: "Password updated successfully." });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/request-email-verification", resetLimiter, async (req, res, next) => {
+  try {
+    const { email } = req.body || {};
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ error: "Email is required." });
+    }
+
+    const { rows } = await query(
+      `SELECT u.id, u.email_verified AS "emailVerified",
+              p.first_name AS "firstName"
+         FROM users u
+         LEFT JOIN user_profiles p ON p.user_id = u.id
+        WHERE u.email = $1`,
+      [email],
+    );
+    const user = rows[0];
+
+    if (!user || user.emailVerified) {
+      return res.json({ message: "If the account exists, a code was sent." });
+    }
+
+    const verification = await createEmailVerification(user.id);
+    try {
+      await sendVerifyEmail(email, verification.code, user.firstName);
+    } catch (mailError) {
+      console.error("Failed to send verification email", mailError);
+    }
+
+    return res.json({ message: "If the account exists, a code was sent." });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/verify-email", resetLimiter, async (req, res, next) => {
+  try {
+    const { email, code } = req.body || {};
+    if (!isValidEmail(email) || !code) {
+      return res.status(400).json({ error: "Email and code are required." });
+    }
+
+    const { rows } = await query(
+      `SELECT ev.id, ev.expires_at AS "expiresAt"
+         FROM email_verifications ev
+         JOIN users u ON u.id = ev.user_id
+        WHERE u.email = $1
+          AND ev.code = $2
+          AND ev.verified_at IS NULL
+        ORDER BY ev.created_at DESC
+        LIMIT 1`,
+      [email, code],
+    );
+
+    const verification = rows[0];
+    if (!verification) {
+      return res.status(400).json({ error: "Invalid verification code." });
+    }
+    if (new Date(verification.expiresAt).getTime() < Date.now()) {
+      return res.status(400).json({ error: "Verification code expired." });
+    }
+
+    await query(
+      `UPDATE users
+          SET email_verified = true
+        WHERE email = $1`,
+      [email],
+    );
+    await query(
+      `UPDATE email_verifications
+          SET verified_at = now()
+        WHERE id = $1`,
+      [verification.id],
+    );
+    await logAudit(req, "email_verified", { email });
+
+    return res.json({ message: "Email verified successfully." });
   } catch (error) {
     return next(error);
   }
@@ -326,7 +552,7 @@ router.post("/request-access", async (req, res, next) => {
     const { fullName, email, school, gradeLevel } = req.body || {};
     const resolvedSchool = school || gradeLevel;
 
-    if (!fullName || !email || !resolvedSchool) {
+    if (!fullName || !isValidEmail(email) || !resolvedSchool) {
       return res
         .status(400)
         .json({ error: "Full name, email, and school are required." });
@@ -347,6 +573,12 @@ router.post("/request-access", async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
+});
+
+router.post("/logout", requireAuth, requireCsrf, (req, res) => {
+  res.clearCookie("classiq_token", getCookieOptions());
+  logAudit(req, "logout", {}).catch(() => {});
+  return res.json({ success: true });
 });
 
 export default router;

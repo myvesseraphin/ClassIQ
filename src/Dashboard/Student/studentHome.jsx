@@ -74,8 +74,6 @@ const StudentHome = () => {
       } catch (err) {
         console.error("Failed to load dashboard", err);
         if (err.response?.status === 401) {
-          localStorage.clear();
-          navigate("/login");
           return;
         }
         const message =

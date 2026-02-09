@@ -16,6 +16,7 @@ const VerifyEmail = () => {
   const [success, setSuccess] = useState(false);
 
   const email = location.state?.email || "your email";
+  const mode = location.state?.mode || "reset";
 
   const handleChange = (element, index) => {
     if (isNaN(element.value)) return;
@@ -53,21 +54,34 @@ const VerifyEmail = () => {
     setLoading(true);
 
     try {
-      const { data } = await api.post("/auth/verify-reset-code", { email, code });
-      sessionStorage.setItem("resetToken", data.resetToken);
-      toast.success("Verification successful! Redirecting...", {
-        position: "top-right",
-        autoClose: 2000,
-      });
-      setSuccess(true);
-      setTimeout(
-        () =>
-          navigate("/reset-password", {
-            state: { email, resetToken: data.resetToken },
-            replace: true,
-          }),
-        1800,
-      );
+      if (mode === "email") {
+        await api.post("/auth/verify-email", { email, code });
+        toast.success("Email verified! You can now log in.", {
+          position: "top-right",
+          autoClose: 2000,
+        });
+        setSuccess(true);
+        setTimeout(() => navigate("/login", { replace: true }), 1800);
+      } else {
+        const { data } = await api.post("/auth/verify-reset-code", {
+          email,
+          code,
+        });
+        sessionStorage.setItem("resetToken", data.resetToken);
+        toast.success("Verification successful! Redirecting...", {
+          position: "top-right",
+          autoClose: 2000,
+        });
+        setSuccess(true);
+        setTimeout(
+          () =>
+            navigate("/reset-password", {
+              state: { email, resetToken: data.resetToken },
+              replace: true,
+            }),
+          1800,
+        );
+      }
     } catch (err) {
       const message =
         err.response?.data?.error || "Invalid verification code.";
@@ -79,7 +93,11 @@ const VerifyEmail = () => {
 
   const handleResend = async () => {
     try {
-      await api.post("/auth/request-password-reset", { email });
+      if (mode === "email") {
+        await api.post("/auth/request-email-verification", { email });
+      } else {
+        await api.post("/auth/request-password-reset", { email });
+      }
       toast.info("A new code has been sent.");
     } catch (err) {
       const message =
@@ -97,7 +115,9 @@ const VerifyEmail = () => {
           </div>
           <h2 className="text-xl font-bold text-slate-900">Verified!</h2>
           <p className="text-sm text-slate-500 font-medium">
-            Identity confirmed. Let's set your new password.
+            {mode === "email"
+              ? "Email verified. You can now sign in."
+              : "Identity confirmed. Let's set your new password."}
           </p>
         </div>
       </div>
