@@ -6,72 +6,84 @@ import {
   X,
   Calendar,
   ChevronLeft,
+  Loader2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "react-toastify";
+import api from "../../api/client";
 
 const Tasks = () => {
   const navigate = useNavigate();
-  const [tasks, setTasks] = useState([
-    {
-      id: 1,
-      title: "Complete Python Assignment",
-      due: "2024-02-10",
-      completed: false,
-      priority: "high",
-    },
-    {
-      id: 2,
-      title: "Study for Chemistry Exam",
-      due: "2024-02-15",
-      completed: true,
-      priority: "high",
-    },
-    {
-      id: 3,
-      title: "Read Chapter 5",
-      due: "2024-02-12",
-      completed: false,
-      priority: "medium",
-    },
-    {
-      id: 4,
-      title: "Submit Project Report",
-      due: "2024-02-08",
-      completed: false,
-      priority: "high",
-    },
-  ]);
+  const [tasks, setTasks] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [showAddTask, setShowAddTask] = useState(false);
   const [taskTitle, setTaskTitle] = useState("");
   const [taskDue, setTaskDue] = useState("");
   const [taskPriority, setTaskPriority] = useState("medium");
   const [filter, setFilter] = useState("all");
 
-  const addTask = () => {
-    if (taskTitle.trim()) {
-      const newTask = {
-        id: Math.max(...tasks.map((t) => t.id), 0) + 1,
+  React.useEffect(() => {
+    let isMounted = true;
+    const loadTasks = async () => {
+      try {
+        const { data } = await api.get("/student/tasks");
+        if (isMounted && Array.isArray(data?.tasks)) {
+          setTasks(data.tasks);
+        }
+      } catch (err) {
+        console.error("Failed to load tasks", err);
+        toast.error("Failed to load tasks.");
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    };
+    loadTasks();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const addTask = async () => {
+    if (!taskTitle.trim()) return;
+    try {
+      const { data } = await api.post("/student/tasks", {
         title: taskTitle,
-        due: taskDue || new Date().toISOString().split("T")[0],
-        completed: false,
+        due: taskDue || undefined,
         priority: taskPriority,
-      };
-      setTasks([...tasks, newTask]);
+      });
+      setTasks((prev) => [...prev, data.task]);
       setTaskTitle("");
       setTaskDue("");
       setTaskPriority("medium");
       setShowAddTask(false);
+    } catch (err) {
+      console.error("Failed to add task", err);
+      toast.error("Failed to add task.");
     }
   };
 
-  const toggleTask = (id) => {
-    setTasks(
-      tasks.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t)),
-    );
+  const toggleTask = async (id) => {
+    const current = tasks.find((t) => t.id === id);
+    if (!current) return;
+    try {
+      const { data } = await api.patch(`/student/tasks/${id}`, {
+        completed: !current.completed,
+      });
+      setTasks((prev) => prev.map((t) => (t.id === id ? data.task : t)));
+    } catch (err) {
+      console.error("Failed to update task", err);
+      toast.error("Failed to update task.");
+    }
   };
 
-  const deleteTask = (id) => {
-    setTasks(tasks.filter((t) => t.id !== id));
+  const deleteTask = async (id) => {
+    try {
+      await api.delete(`/student/tasks/${id}`);
+      setTasks((prev) => prev.filter((t) => t.id !== id));
+    } catch (err) {
+      console.error("Failed to delete task", err);
+      toast.error("Failed to delete task.");
+    }
   };
 
   const filteredTasks = tasks.filter((t) => {
@@ -147,7 +159,14 @@ const Tasks = () => {
             </div>
 
             <div className="space-y-4">
-              {filteredTasks.length === 0 ? (
+              {isLoading ? (
+                <div className="text-center py-20 bg-white rounded-[2rem] border border-slate-100">
+                  <Loader2
+                    className="mx-auto mb-4 text-blue-600 animate-spin"
+                    size={36}
+                  />
+                </div>
+              ) : filteredTasks.length === 0 ? (
                 <div className="text-center py-20 bg-white rounded-[2rem] border border-slate-100">
                   <CheckCircle2
                     className="mx-auto mb-4 text-slate-300"
@@ -199,7 +218,7 @@ const Tasks = () => {
                             Priority
                           </span>
                           <span className="flex items-center gap-1 text-sm text-slate-500 font-bold">
-                            <Calendar size={14} /> {task.due}
+                            <Calendar size={14} /> {task.due || "No due date"}
                           </span>
                         </div>
                       </div>

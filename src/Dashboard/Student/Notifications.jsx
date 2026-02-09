@@ -1,40 +1,65 @@
 import React, { useState } from "react";
 import { Bell, X, Trash, CheckCircle, Loader2 } from "lucide-react";
-
-const sample = [
-  {
-    id: 1,
-    title: "New Assessment Available",
-    body: "A new assessment for Mathematics has been posted.",
-    time: "2h ago",
-    read: false,
-  },
-  {
-    id: 2,
-    title: "Profile Updated",
-    body: "Your profile was successfully updated.",
-    time: "1d ago",
-    read: true,
-  },
-  {
-    id: 3,
-    title: "Course Reminder",
-    body: "Don't forget your Chemistry lab tomorrow at 10:00.",
-    time: "3d ago",
-    read: false,
-  },
-];
+import { toast } from "react-toastify";
+import api from "../../api/client";
+import EmptyState from "../../Component/EmptyState";
 
 const Notifications = () => {
-  const [items, setItems] = useState(sample);
+  const [items, setItems] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const markRead = (id) => {
-    setItems((s) => s.map((it) => (it.id === id ? { ...it, read: true } : it)));
+  React.useEffect(() => {
+    let isMounted = true;
+    const loadNotifications = async () => {
+      try {
+        const { data } = await api.get("/student/notifications");
+        if (isMounted && Array.isArray(data?.notifications)) {
+          setItems(data.notifications);
+        }
+      } catch (err) {
+        console.error("Failed to load notifications", err);
+        toast.error("Failed to load notifications.");
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    };
+    loadNotifications();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const markRead = async (id) => {
+    try {
+      const { data } = await api.patch(`/student/notifications/${id}/read`);
+      setItems((s) =>
+        s.map((it) => (it.id === id ? data.notification : it)),
+      );
+    } catch (err) {
+      console.error("Failed to mark notification read", err);
+      toast.error("Failed to update notification.");
+    }
   };
 
-  const remove = (id) => setItems((s) => s.filter((it) => it.id !== id));
+  const remove = async (id) => {
+    try {
+      await api.delete(`/student/notifications/${id}`);
+      setItems((s) => s.filter((it) => it.id !== id));
+    } catch (err) {
+      console.error("Failed to remove notification", err);
+      toast.error("Failed to remove notification.");
+    }
+  };
 
-  const clearAll = () => setItems([]);
+  const clearAll = async () => {
+    try {
+      await api.delete("/student/notifications");
+      setItems([]);
+    } catch (err) {
+      console.error("Failed to clear notifications", err);
+      toast.error("Failed to clear notifications.");
+    }
+  };
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
@@ -66,16 +91,15 @@ const Notifications = () => {
             </div>
 
             <div className="space-y-4">
-              {items.length === 0 ? (
+              {isLoading ? (
                 <div className="text-center py-20 bg-white rounded-[1.5rem] border border-slate-100">
                   <Loader2
                     className="animate-spin text-blue-600 mx-auto mb-4"
                     size={36}
                   />
-                  <p className="font-black text-slate-400 uppercase tracking-widest">
-                    No notifications
-                  </p>
                 </div>
+              ) : items.length === 0 ? (
+                <EmptyState />
               ) : (
                 items.map((n) => (
                   <div

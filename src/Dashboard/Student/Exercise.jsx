@@ -18,64 +18,53 @@ import {
   Send,
   Activity,
 } from "lucide-react";
+import { toast } from "react-toastify";
+import api from "../../api/client";
+import EmptyState from "../../Component/EmptyState";
 
 const Exercise = () => {
+  const isUuid = (value) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value || "",
+    );
   const [viewMode, setViewMode] = useState("grid");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSubject, setSelectedSubject] = useState("All");
   const [selectedExercise, setSelectedExercise] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeQuestion, setActiveQuestion] = useState(0);
+  const [answers, setAnswers] = useState({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
 
-  const subjects = ["All", "Mathematics", "Physics", "PHP"];
+  const [exercises, setExercises] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const mockQuestions = [
-    {
-      id: 1,
-      text: "Evaluate the integral of x*ln(x) dx using integration by parts.",
-      type: "Open-ended",
-    },
-    {
-      id: 2,
-      text: "Determine the constant of integration if the curve passes through (1, 2).",
-      type: "Calculation",
-    },
-    {
-      id: 3,
-      text: "Explain why integration by parts is preferred over substitution in this case.",
-      type: "Theory",
-    },
+  const subjects = [
+    "All",
+    ...Array.from(new Set(exercises.map((ex) => ex.subject).filter(Boolean))),
   ];
 
-  const [exercises, setExercises] = useState([
-    {
-      id: 1,
-      name: "Integration by Parts Mastery",
-      subject: "Mathematics",
-      difficulty: "Hard",
-      questionCount: 5,
-      date: "Jan 26, 2026",
-      questions: mockQuestions,
-    },
-    {
-      id: 2,
-      name: "Electromagnetic Induction Set",
-      subject: "Physics",
-      difficulty: "Medium",
-      questionCount: 8,
-      date: "Jan 25, 2026",
-      questions: mockQuestions,
-    },
-    {
-      id: 3,
-      name: "Organic Reaction Mechanisms",
-      subject: "Chemistry",
-      difficulty: "Medium",
-      questionCount: 6,
-      date: "Jan 24, 2026",
-      questions: mockQuestions,
-    },
-  ]);
+  React.useEffect(() => {
+    let isMounted = true;
+    const loadExercises = async () => {
+      try {
+        const { data } = await api.get("/student/exercises?includeQuestions=true");
+        if (isMounted && Array.isArray(data?.exercises)) {
+          setExercises(data.exercises);
+        }
+      } catch (err) {
+        console.error("Failed to load exercises", err);
+        toast.error("Failed to load exercises.");
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    };
+    loadExercises();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleGenerateNew = async () => {
     setIsGenerating(true);
@@ -87,14 +76,131 @@ const Exercise = () => {
   const filteredExercises = exercises.filter(
     (ex) =>
       (selectedSubject === "All" || ex.subject === selectedSubject) &&
-      ex.name.toLowerCase().includes(searchQuery.toLowerCase()),
+      (ex.name || "").toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
+  if (isLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-[#F8FAFC]">
+        <Loader2 className="animate-spin text-blue-600" size={40} />
+      </div>
+    );
+  }
+
+  const handleSelectExercise = (exercise) => {
+    setSelectedExercise({
+      ...exercise,
+      questions: exercise.questions || [],
+    });
+    setActiveQuestion(0);
+    setAnswers({});
+  };
+
+  const handleAnswerChange = (questionId, value) => {
+    if (!questionId) return;
+    setAnswers((prev) => ({ ...prev, [questionId]: value }));
+  };
+
+  const submitExercise = async (status = "submitted") => {
+    if (!selectedExercise?.id) return;
+    if (!isUuid(selectedExercise.id)) {
+      toast.error("Sync exercises before submitting.");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const answersPayload = Object.entries(answers).map(([questionId, text]) => ({
+        questionId,
+        answerText: text,
+      }));
+      await api.post(`/student/exercises/${selectedExercise.id}/submit`, {
+        status,
+        answers: answersPayload,
+      });
+      toast.success(
+        status === "submitted" ? "Exercise submitted!" : "Progress saved.",
+      );
+    } catch (err) {
+      console.error("Failed to submit exercise", err);
+      toast.error("Failed to submit exercise.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const downloadExercise = async (exercise) => {
+    if (!exercise?.id) return;
+    if (!isUuid(exercise.id)) {
+      toast.error("Sync exercises before downloading.");
+      return;
+    }
+    setIsDownloading(true);
+    try {
+      const { data } = await api.get(
+        `/student/exercises/${exercise.id}/download`,
+        { responseType: "blob" },
+      );
+      const url = window.URL.createObjectURL(new Blob([data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${exercise.name || "exercise"}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Failed to download exercise", err);
+      toast.error("Failed to download exercise.");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   const handleNextQuestion = () => {
+    if (!selectedExercise?.questions?.length) return;
     if (activeQuestion < selectedExercise.questions.length - 1) {
       setActiveQuestion((prev) => prev + 1);
     }
   };
+
+  const isMultipleChoice = (question) => {
+    const type = String(question?.type || "").toLowerCase();
+    return type.includes("choice") || type.includes("multiple") || type.includes("mcq");
+  };
+
+  const extractOptions = (text) => {
+    if (!text) return [];
+    return String(text)
+      .split("\n")
+      .map((line) => line.trim())
+      .map((line) => {
+        const match = line.match(/^([A-Z])\)\s*(.+)$/);
+        if (!match) return null;
+        return { key: match[1], label: match[2] };
+      })
+      .filter(Boolean);
+  };
+
+  const getQuestionPrompt = (text) => {
+    if (!text) return "";
+    const lines = String(text).split("\n");
+    const optionIndex = lines.findIndex((line) => /^\s*[A-Z]\)\s*/.test(line));
+    if (optionIndex === -1) return String(text);
+    return lines.slice(0, optionIndex).join("\n").trim();
+  };
+
+  const activeQuestionData =
+    selectedExercise?.questions?.[activeQuestion] || {
+      type: "Question",
+      text: "No questions available.",
+    };
+  const questionPrompt = getQuestionPrompt(activeQuestionData.text);
+  const questionOptions = isMultipleChoice(activeQuestionData)
+    ? extractOptions(activeQuestionData.text)
+    : [];
+  const selectedAnswer = activeQuestionData.id
+    ? answers[activeQuestionData.id] || ""
+    : "";
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
@@ -168,7 +274,9 @@ const Exercise = () => {
                 />
               </div>
             </div>
-            {filteredExercises.length > 0 ? (
+            {exercises.length === 0 ? (
+              <EmptyState />
+            ) : filteredExercises.length > 0 ? (
               viewMode === "grid" ? (
                 <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-8">
                   {filteredExercises.map((ex) => (
@@ -191,15 +299,16 @@ const Exercise = () => {
                       </p>
                       <div className="grid grid-cols-2 gap-3">
                         <button
-                          onClick={() => {
-                            setSelectedExercise(ex);
-                            setActiveQuestion(0);
-                          }}
+                          onClick={() => handleSelectExercise(ex)}
                           className="py-4 bg-blue-50 text-[#2D70FD] rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:bg-blue-100 transition-all"
                         >
                           <Activity size={18} /> Solve
                         </button>
-                        <button className="py-4 bg-[#2D70FD] text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-sm">
+                        <button
+                          onClick={() => downloadExercise(ex)}
+                          disabled={isDownloading}
+                          className="py-4 bg-[#2D70FD] text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-sm disabled:opacity-60"
+                        >
                           <Printer size={18} /> Print
                         </button>
                       </div>
@@ -229,15 +338,16 @@ const Exercise = () => {
                       </div>
                       <div className="flex items-center gap-3">
                         <button
-                          onClick={() => {
-                            setSelectedExercise(ex);
-                            setActiveQuestion(0);
-                          }}
+                          onClick={() => handleSelectExercise(ex)}
                           className="px-6 py-2.5 bg-blue-50 text-[#2D70FD] rounded-xl font-black text-xs"
                         >
                           Solve
                         </button>
-                        <button className="p-2.5 text-slate-400 hover:text-slate-600">
+                        <button
+                          onClick={() => downloadExercise(ex)}
+                          disabled={isDownloading}
+                          className="p-2.5 text-slate-400 hover:text-slate-600 disabled:opacity-60"
+                        >
                           <Printer size={18} />
                         </button>
                       </div>
@@ -246,11 +356,7 @@ const Exercise = () => {
                 </div>
               )
             ) : (
-              <div className="text-center py-20 bg-white rounded-[3rem] border-2 border-dashed border-slate-200">
-                <p className="text-slate-400 font-bold">
-                  No exercises found matching your criteria.
-                </p>
-              </div>
+              <EmptyState />
             )}
           </div>
         </main>
@@ -302,7 +408,11 @@ const Exercise = () => {
                 </div>
 
                 <div className="p-6 bg-white border-t border-slate-100">
-                  <button className="w-full py-4 bg-emerald-50 text-emerald-600 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-emerald-100">
+                  <button
+                    onClick={() => submitExercise("submitted")}
+                    disabled={isSubmitting}
+                    className="w-full py-4 bg-emerald-50 text-emerald-600 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-emerald-100 disabled:opacity-60"
+                  >
                     <CheckCircle2 size={16} /> Submit All
                   </button>
                 </div>
@@ -325,24 +435,76 @@ const Exercise = () => {
                   <div className="max-w-2xl mx-auto space-y-8">
                     <div className="space-y-4">
                       <span className="px-3 py-1 bg-blue-50 text-[#2D70FD] text-[10px] font-black rounded-lg uppercase">
-                        {selectedExercise.questions[activeQuestion].type}
+                        {activeQuestionData.type}
                       </span>
-                      <h4 className="text-2xl font-extrabold text-slate-800 leading-snug">
-                        {selectedExercise.questions[activeQuestion].text}
+                      <h4 className="text-2xl font-extrabold text-slate-800 leading-snug whitespace-pre-line">
+                        {questionPrompt || activeQuestionData.text}
                       </h4>
                     </div>
 
                     <div className="space-y-4">
-                      <textarea
-                        placeholder="Type your solution or thought process here..."
-                        className="w-full h-48 p-6 bg-slate-50 border-2 border-slate-100 rounded-[2rem] outline-none focus:border-[#2D70FD] transition-all font-medium text-slate-700 resize-none"
-                      />
+                      {isMultipleChoice(activeQuestionData) &&
+                      questionOptions.length > 0 ? (
+                        <div className="space-y-3">
+                          {questionOptions.map((option) => {
+                            const isSelected = selectedAnswer === option.key;
+                            return (
+                              <button
+                                key={option.key}
+                                type="button"
+                                onClick={() =>
+                                  handleAnswerChange(
+                                    activeQuestionData.id,
+                                    option.key,
+                                  )
+                                }
+                                disabled={!activeQuestionData.id}
+                                className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl border transition-all ${
+                                  isSelected
+                                    ? "border-[#2D70FD] bg-white shadow-sm"
+                                    : "border-slate-200 bg-slate-50 hover:bg-white"
+                                } ${!activeQuestionData.id ? "opacity-60" : ""}`}
+                              >
+                                <span
+                                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                                    isSelected
+                                      ? "border-[#2D70FD] bg-[#2D70FD]/10"
+                                      : "border-slate-300 bg-white"
+                                  }`}
+                                >
+                                  {isSelected ? (
+                                    <span className="w-2.5 h-2.5 rounded-full bg-[#2D70FD]" />
+                                  ) : null}
+                                </span>
+                                <span className="text-sm font-semibold text-slate-700 text-left">
+                                  {option.label}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <input
+                          type="text"
+                          placeholder="Type your answer here..."
+                          value={selectedAnswer}
+                          onChange={(e) =>
+                            handleAnswerChange(
+                              activeQuestionData.id,
+                              e.target.value,
+                            )
+                          }
+                          disabled={!activeQuestionData.id}
+                          className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-[2rem] outline-none focus:border-[#2D70FD] transition-all font-medium text-slate-700 disabled:opacity-60"
+                        />
+                      )}
                       <div className="flex justify-between items-center">
                         <button
                           onClick={handleNextQuestion}
                           disabled={
+                            selectedExercise.questions.length === 0 ||
                             activeQuestion ===
-                            selectedExercise.questions.length - 1
+                              selectedExercise.questions.length - 1
                           }
                           className="px-8 py-3 bg-[#2D70FD] text-white rounded-xl font-black text-xs flex items-center gap-2 hover:shadow-lg transition-all disabled:opacity-50"
                         >
@@ -354,14 +516,26 @@ const Exercise = () => {
                 </div>
 
                 <div className="p-8 border-t border-slate-50 flex justify-between items-center bg-slate-50/50">
-                  <button className="text-slate-400 font-bold hover:text-slate-600 transition-colors flex items-center gap-2">
+                  <button
+                    onClick={() => submitExercise("in_progress")}
+                    disabled={isSubmitting}
+                    className="text-slate-400 font-bold hover:text-slate-600 transition-colors flex items-center gap-2 disabled:opacity-60"
+                  >
                     <Download size={18} /> Save Progress
                   </button>
                   <div className="flex gap-4">
-                    <button className="px-8 py-4 border-2 border-slate-200 text-slate-600 rounded-2xl font-black text-sm hover:bg-white transition-all flex items-center gap-2">
+                    <button
+                      onClick={() => downloadExercise(selectedExercise)}
+                      disabled={isDownloading}
+                      className="px-8 py-4 border-2 border-slate-200 text-slate-600 rounded-2xl font-black text-sm hover:bg-white transition-all flex items-center gap-2 disabled:opacity-60"
+                    >
                       <Printer size={18} /> Print PDF
                     </button>
-                    <button className="px-8 py-4 bg-[#2D70FD] text-white rounded-2xl font-black text-sm shadow-xl shadow-blue-100 flex items-center gap-2">
+                    <button
+                      onClick={() => submitExercise("submitted")}
+                      disabled={isSubmitting}
+                      className="px-8 py-4 bg-[#2D70FD] text-white rounded-2xl font-black text-sm shadow-xl shadow-blue-100 flex items-center gap-2 disabled:opacity-60"
+                    >
                       <Send size={18} /> Finish Exercise
                     </button>
                   </div>

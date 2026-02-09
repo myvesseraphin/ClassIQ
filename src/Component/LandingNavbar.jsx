@@ -59,6 +59,12 @@ const LandingNavbar = () => {
             >
               Log In
             </button>
+            <button
+              onClick={() => navigate("/library-login")}
+              className="px-8 py-3 rounded-full font-bold text-[15px] text-white bg-black hover:bg-slate-900 transition-all"
+            >
+              Library
+            </button>
           </div>
         </div>
         <button
@@ -86,6 +92,12 @@ const LandingNavbar = () => {
               className="w-full bg-slate-100 py-4 rounded-full font-bold"
             >
               Log In
+            </button>
+            <button
+              onClick={() => navigate("/library-login")}
+              className="w-full bg-black text-white py-4 rounded-full font-bold"
+            >
+              Library
             </button>
             <button
               onClick={() => navigate("/login")}

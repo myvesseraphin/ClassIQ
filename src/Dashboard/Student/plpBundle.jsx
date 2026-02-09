@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   BookOpen,
   CheckCircle,
@@ -12,7 +12,11 @@ import {
   LayoutGrid,
   List,
   Brain,
+  Loader2,
 } from "lucide-react";
+import { toast } from "react-toastify";
+import api from "../../api/client";
+import EmptyState from "../../Component/EmptyState";
 
 const FullScreenLoader = () => (
   <div className="flex flex-col items-center justify-center h-screen w-full bg-slate-50">
@@ -74,85 +78,70 @@ const CircularProgress = ({
 
 const PLPBundle = () => {
   const [view, setView] = useState("overview");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [viewMode, setViewMode] = useState("grid");
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("All Subjects");
   const [selectedSubject, setSelectedSubject] = useState(null);
 
-  const handleViewChange = (newView, subject = null) => {
-    setIsLoading(true);
-    setTimeout(() => {
-      if (subject) setSelectedSubject(subject);
-      setView(newView);
-      setIsLoading(false);
-    }, 800);
-  };
+  const [subjects, setSubjects] = useState([]);
 
-  const [subjects] = useState([
-    {
-      id: "SUB-001",
-      name: "Mathematics",
-      category: "Math",
-      status: "Priority Intervention",
-      progress: 42,
-      lastAssessment: "Feb 01, 2026",
-      teacher: "Jean Damascene H.",
-      weakAreas: [
-        {
-          topic: "Quadratic Equations",
-          level: "High Priority",
-          desc: "Struggling with factoring and coefficients in end-unit assessment.",
-        },
-        {
-          topic: "Fractions",
-          level: "Critical",
-          desc: "Detected learning gap in unlike denominators during diagnostic.",
-        },
-      ],
-      actions: [
-        "Daily Quadratic Formula practice",
-        "AI-Generated fractions drill",
-      ],
-      tips: ["Focus on quadratics first.", "Use the Pomodoro technique."],
-      feedback:
-        "Linear equation mastery is high, but diagnostic assessment shows quadratic repetition is required for curriculum coverage.",
-    },
-    {
-      id: "SUB-002",
-      name: "Physics",
-      category: "Physics",
-      status: "On Track",
-      progress: 78,
-      lastAssessment: "Jan 28, 2026",
-      teacher: "Jean Damascene H.",
-      weakAreas: [
-        {
-          topic: "Thermodynamics",
-          level: "Moderate",
-          desc: "Concept of entropy and heat transfer needs reinforcement.",
-        },
-      ],
-      actions: ["Review Laws of Thermodynamics", "Complete Lab Sim #4"],
-      tips: ["Draw energy flow diagrams."],
-      feedback:
-        "Consistent performance across mechanics; AI predicts 85% mastery by next cycle.",
-    },
-  ]);
+  useEffect(() => {
+    let isMounted = true;
+    const loadSubjects = async () => {
+      try {
+        const { data } = await api.get("/student/plp");
+        if (isMounted && Array.isArray(data?.subjects)) {
+          setSubjects(data.subjects);
+        }
+      } catch (err) {
+        console.error("Failed to load PLP subjects", err);
+        toast.error("Failed to load PLP subjects.");
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    };
+    loadSubjects();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
-  const filters = ["All Subjects", "Physics", "Math"];
+  const filters = [
+    "All Subjects",
+    ...Array.from(
+      new Set(subjects.map((sub) => sub.category).filter(Boolean)),
+    ),
+  ];
   const filteredSubjects = subjects.filter((sub) => {
     const matchesFilter =
       activeFilter === "All Subjects" || sub.category === activeFilter;
     const matchesSearch =
-      sub.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      sub.id.toLowerCase().includes(searchQuery.toLowerCase());
+      (sub.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (sub.id || "").toLowerCase().includes(searchQuery.toLowerCase());
     return matchesFilter && matchesSearch;
   });
 
-  const handleSelectSubject = (sub) => {
-    setSelectedSubject(sub);
-    setView("detail");
+  const handleSelectSubject = async (sub) => {
+    setIsLoading(true);
+    try {
+      const { data } = await api.get(`/student/plp/${sub.id}`);
+      const detail = data.subject || sub;
+      setSelectedSubject({
+        ...sub,
+        ...detail,
+        weakAreas: detail.weakAreas || sub.weakAreas || [],
+        actions: detail.actions || sub.actions || [],
+        tips: detail.tips || sub.tips || [],
+        feedback: detail.feedback || sub.feedback || "",
+      });
+      setView("detail");
+    } catch (err) {
+      console.error("Failed to load PLP detail", err);
+      toast.error("Failed to load PLP detail.");
+    } finally {
+      setIsLoading(false);
+    }
   };
   if (isLoading) return <FullScreenLoader />;
   return (
@@ -327,14 +316,13 @@ const PLPBundle = () => {
                     </div>
                   )
                 ) : (
-                  <div className="text-center py-20 bg-white rounded-[2.5rem] border-2 border-dashed border-slate-200">
-                    <p className="text-slate-400 font-black uppercase tracking-widest">
-                      No matching plans found.
-                    </p>
-                  </div>
+                  <EmptyState />
                 )}
               </>
             ) : (
+              !selectedSubject ? (
+                <EmptyState />
+              ) : (
               <div className="grid lg:grid-cols-12 gap-10">
                 <div className="lg:col-span-8 space-y-8">
                   <div className="bg-white border-2 border-blue-50 rounded-[3rem] p-12 flex items-center justify-between shadow-xl shadow-blue-500/5">
@@ -430,6 +418,7 @@ const PLPBundle = () => {
                   </div>
                 </aside>
               </div>
+              )
             )}
           </div>
         </main>

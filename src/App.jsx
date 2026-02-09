@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate, Link } from "react-router-dom";
+import { ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 import logo from "./assets/logo.png";
 import Login from "./Pages/Login";
+import LibraryLogin from "./Pages/LibraryLogin";
 import ForgotPassword from "./Pages/ForgotPassword";
 import ResetPassword from "./Pages/ResetPassword";
 import VerifyEmail from "./Pages/VerifyEmail";
+import RequestAccess from "./Pages/RequestAccess";
 import LandingPage from "./Pages/LandingPage";
 import ProtectedRoute from "./Auth/ProtectedRoute";
 import StudentLayout from "./Dashboard/Student/studentLayout";
@@ -18,6 +22,9 @@ import StudentProfile from "./Dashboard/Student/studentProfile";
 import Notifications from "./Dashboard/Student/Notifications";
 import Tasks from "./Dashboard/Student/Tasks";
 import Schedule from "./Dashboard/Student/Schedule";
+import LibraryDashboard from "./Dashboard/Student/LibraryDashboard";
+import LibraryResources from "./Dashboard/Student/LibraryResources";
+import LibraryLayout from "./Dashboard/Library/LibraryLayout";
 const Preloader = () => (
   <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-white">
     <div className="relative flex items-center justify-center">
@@ -68,12 +75,15 @@ function App() {
 
   return (
     <BrowserRouter>
+      <ToastContainer position="top-right" autoClose={4000} />
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/library-login" element={<LibraryLogin />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/request-access" element={<RequestAccess />} />
         <Route
           path="/student"
           element={
@@ -96,6 +106,17 @@ function App() {
             path="settings"
             element={<Navigate to="/student/profile" replace />}
           />
+        </Route>
+        <Route
+          path="/library"
+          element={
+            <ProtectedRoute redirectTo="/library-login">
+              <LibraryLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<LibraryDashboard />} />
+          <Route path="resources" element={<LibraryResources />} />
         </Route>
         <Route
           path="/teacher"

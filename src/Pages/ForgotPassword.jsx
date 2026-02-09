@@ -1,21 +1,24 @@
 import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { ChevronLeft, Loader2 } from "lucide-react";
-import { toast, ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+import { toast } from "react-toastify";
 import loginIllustration from "../assets/Login.png";
+import api from "../api/client";
 
 const ForgotPassword = () => {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
 
-    setTimeout(() => {
-      setLoading(false);
+    try {
+      const { data } = await api.post("/auth/request-password-reset", { email });
+      if (data?.dev?.code) {
+        sessionStorage.setItem("resetDevCode", data.dev.code);
+      }
       toast.success("Recovery email sent! Check your inbox.", {
         position: "top-right",
         autoClose: 4000,
@@ -23,16 +26,21 @@ const ForgotPassword = () => {
         pauseOnHover: true,
         draggable: true,
       });
-
       setTimeout(() => {
         navigate("/verify-email", { state: { email } });
-      }, 1500);
-    }, 1000);
+      }, 1200);
+    } catch (err) {
+      const message =
+        err.response?.data?.error ||
+        "Unable to send recovery email. Please try again.";
+      toast.error(message, { position: "top-right" });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="min-h-screen flex w-full bg-white font-sans overflow-hidden">
-      <ToastContainer />
       <div className="hidden lg:flex flex-1 items-center justify-center p-12 bg-[#fbfcff] border-r border-slate-100">
         <div className="relative w-full max-w-xl flex flex-col items-center">
           <img

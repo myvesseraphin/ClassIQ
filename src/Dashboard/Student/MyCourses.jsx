@@ -9,12 +9,18 @@ import {
   Plus,
   X,
   AlertTriangle,
-  Calendar,
-  UserCircle,
   ChevronDown,
+  Loader2,
 } from "lucide-react";
+import { toast } from "react-toastify";
+import api from "../../api/client";
+import EmptyState from "../../Component/EmptyState";
 
 const MyCourses = () => {
+  const isUuid = (value) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value || "",
+    );
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("All");
   const [selectedCourse, setSelectedCourse] = useState(null);
@@ -26,69 +32,16 @@ const MyCourses = () => {
   const [missingReason, setMissingReason] = useState("Missing core subject");
   const [missingDetails, setMissingDetails] = useState("");
   const [missingSubjectError, setMissingSubjectError] = useState(false);
+  const [mismatchAttachment, setMismatchAttachment] = useState(null);
+  const [missingAttachment, setMissingAttachment] = useState(null);
+  const [courses, setCourses] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   const currentYear = new Date().getFullYear();
   const currentTerm = "Term 2";
   const currentGrade = "Year 1B";
   const program = "RCA";
 
-  const courses = [
-    {
-      id: 1,
-      name: "Mathematics",
-      code: "MATH-201",
-      teacher: "Mr. Habimana",
-      schedule: "Mon/Wed 10:00 - 11:30",
-      credits: 4,
-      category: "Core",
-      progress: 82,
-      status: "Active",
-    },
-    {
-      id: 2,
-      name: "Physics",
-      code: "PHY-214",
-      teacher: "Ms. Uwase",
-      schedule: "Tue/Thu 08:00 - 09:30",
-      credits: 3,
-      category: "Core",
-      progress: 74,
-      status: "Active",
-    },
-    {
-      id: 3,
-      name: "Chemistry",
-      code: "CHEM-210",
-      teacher: "Mr. Niyonzima",
-      schedule: "Mon/Fri 14:00 - 15:30",
-      credits: 3,
-      category: "Core",
-      progress: 69,
-      status: "Active",
-    },
-    {
-      id: 4,
-      name: "Web UI Design",
-      code: "WEB-112",
-      teacher: "Ms. Mukamana",
-      schedule: "Wed 16:00 - 18:00",
-      credits: 2,
-      category: "Elective",
-      progress: 88,
-      status: "Active",
-    },
-    {
-      id: 5,
-      name: "Embedded Systems",
-      code: "EMB-301",
-      teacher: "Mr. Rukundo",
-      schedule: "Thu 13:00 - 15:00",
-      credits: 3,
-      category: "Elective",
-      progress: 62,
-      status: "Pending",
-    },
-  ];
 
   const filters = ["All", "Core", "Elective"];
 
@@ -105,7 +58,7 @@ const MyCourses = () => {
     const average =
       total > 0
         ? Math.round(
-            courses.reduce((sum, c) => sum + c.progress, 0) / total,
+            courses.reduce((sum, c) => sum + (c.progress || 0), 0) / total,
           )
         : 0;
     return {
@@ -117,47 +70,131 @@ const MyCourses = () => {
   }, [courses]);
 
   useEffect(() => {
+    let isMounted = true;
+    const loadCourses = async () => {
+      try {
+        const { data } = await api.get("/student/courses");
+        if (isMounted && Array.isArray(data?.courses)) {
+          setCourses(data.courses);
+        }
+      } catch (err) {
+        console.error("Failed to load courses", err);
+        toast.error("Failed to load courses.");
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    };
+    loadCourses();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!appealNotice) return;
     const timer = setTimeout(() => setAppealNotice(null), 4500);
     return () => clearTimeout(timer);
   }, [appealNotice]);
 
-  const submitMismatchAppeal = () => {
-    setAppealNotice({
-      title: "Appeal submitted",
-      message: `We will review "${selectedCourse.name}" for ${currentGrade} (${program}) within 3 working days.`,
+  const uploadAttachment = async (file) => {
+    if (!file) return {};
+    const formData = new FormData();
+    formData.append("file", file);
+    const { data } = await api.post("/uploads", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
     });
-    setSelectedCourse(null);
-    setMismatchReason("Not in my grade");
-    setMismatchDetails("");
+    return {
+      attachmentUrl: data?.file?.url,
+      attachmentName: data?.file?.name,
+    };
   };
 
-  const submitMissingAppeal = () => {
+  const submitMismatchAppeal = async () => {
+    try {
+      if (!isUuid(selectedCourse?.id)) {
+        toast.error("Sync courses first before submitting an appeal.");
+        return;
+      }
+      const attachment = await uploadAttachment(mismatchAttachment);
+      await api.post("/student/appeals", {
+        type: "mismatch",
+        courseId: selectedCourse?.id,
+        reason: mismatchReason,
+        details: mismatchDetails,
+        ...attachment,
+      });
+      setAppealNotice({
+        title: "Appeal submitted",
+        message: `We will review "${selectedCourse.name}" for ${currentGrade} (${program}) within 3 working days.`,
+      });
+      setSelectedCourse(null);
+      setMismatchReason("Not in my grade");
+      setMismatchDetails("");
+      setMismatchAttachment(null);
+      toast.success("Appeal submitted.");
+    } catch (err) {
+      console.error("Failed to submit mismatch appeal", err);
+      toast.error("Unable to submit appeal.");
+      setAppealNotice({
+        title: "Appeal failed",
+        message: "We could not submit your appeal. Please try again.",
+      });
+    }
+  };
+
+  const submitMissingAppeal = async () => {
     if (!missingSubject.trim()) {
       setMissingSubjectError(true);
       return;
     }
-    setAppealNotice({
-      title: "Missing subject reported",
-      message: `We have received your request for "${missingSubject}".`,
-    });
-    setShowMissingAppeal(false);
-    setMissingSubject("");
-    setMissingReason("Missing core subject");
-    setMissingDetails("");
-    setMissingSubjectError(false);
+    try {
+      const attachment = await uploadAttachment(missingAttachment);
+      await api.post("/student/appeals", {
+        type: "missing",
+        subjectName: missingSubject,
+        reason: missingReason,
+        details: missingDetails,
+        ...attachment,
+      });
+      setAppealNotice({
+        title: "Missing subject reported",
+        message: `We have received your request for "${missingSubject}".`,
+      });
+      setShowMissingAppeal(false);
+      setMissingSubject("");
+      setMissingReason("Missing core subject");
+      setMissingDetails("");
+      setMissingSubjectError(false);
+      setMissingAttachment(null);
+      toast.success("Request submitted.");
+    } catch (err) {
+      console.error("Failed to submit missing subject appeal", err);
+      toast.error("Unable to submit request.");
+      setAppealNotice({
+        title: "Request failed",
+        message: "We could not submit your request. Please try again.",
+      });
+    }
   };
 
   const getStatusStyles = (status) => {
     switch (status) {
       case "Active":
-        return "bg-emerald-50 text-emerald-600 border-emerald-100";
+        return "bg-blue-50 text-blue-700 border-blue-100";
       case "Pending":
-        return "bg-amber-50 text-amber-600 border-amber-100";
+        return "bg-blue-100 text-blue-700 border-blue-200";
       default:
-        return "bg-slate-50 text-slate-500 border-slate-100";
+        return "bg-white text-blue-600 border-blue-100";
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-[#F8FAFC]">
+        <Loader2 className="animate-spin text-blue-600" size={40} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
@@ -189,11 +226,11 @@ const MyCourses = () => {
             </div>
 
             {appealNotice && (
-              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl px-6 py-4 text-emerald-700 flex items-start gap-3">
-                <CheckCircle2 size={18} className="mt-0.5" />
+              <div className="bg-blue-50 border border-blue-200 rounded-2xl px-6 py-4 text-blue-700 flex items-start gap-3">
+                <CheckCircle2 size={18} className="mt-0.5 text-blue-600" />
                 <div>
-                  <p className="text-sm font-black">{appealNotice.title}</p>
-                  <p className="text-xs font-bold text-emerald-600">
+                  <p className="text-sm font-bold">{appealNotice.title}</p>
+                  <p className="text-xs font-bold text-blue-600">
                     {appealNotice.message}
                   </p>
                 </div>
@@ -213,22 +250,22 @@ const MyCourses = () => {
                   label: "Core Subjects",
                   value: coreCount,
                   icon: <Library size={20} />,
-                  color: "text-emerald-600",
-                  bg: "bg-emerald-50",
+                  color: "text-blue-600",
+                  bg: "bg-blue-50",
                 },
                 {
                   label: "Electives",
                   value: electiveCount,
                   icon: <CheckCircle2 size={20} />,
-                  color: "text-purple-600",
-                  bg: "bg-purple-50",
+                  color: "text-blue-600",
+                  bg: "bg-blue-50",
                 },
                 {
                   label: "Avg Progress",
                   value: `${avgProgress}%`,
                   icon: <Activity size={20} />,
-                  color: "text-amber-600",
-                  bg: "bg-amber-50",
+                  color: "text-blue-600",
+                  bg: "bg-blue-50",
                 },
               ].map((stat, i) => (
                 <div
@@ -241,7 +278,7 @@ const MyCourses = () => {
                     {stat.icon}
                   </div>
                   <div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
                       {stat.label}
                     </p>
                     <p className="text-2xl font-black text-slate-800 leading-none">
@@ -288,15 +325,7 @@ const MyCourses = () => {
             </div>
 
             {filteredCourses.length === 0 ? (
-              <div className="text-center py-20 bg-white rounded-[2rem] border border-slate-100">
-                <BookOpen className="mx-auto mb-4 text-slate-300" size={48} />
-                <p className="font-black text-slate-400 uppercase tracking-widest">
-                  No courses found
-                </p>
-                <p className="text-sm text-slate-400 mt-2">
-                  Try adjusting your search or filters.
-                </p>
-              </div>
+              <EmptyState />
             ) : (
               <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-8">
                 {filteredCourses.map((course) => (
@@ -306,11 +335,11 @@ const MyCourses = () => {
                   >
                     <div className="flex items-center justify-between mb-6">
                       <span
-                        className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border ${getStatusStyles(course.status)}`}
+                        className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest border ${getStatusStyles(course.status)}`}
                       >
                         {course.status}
                       </span>
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                         {course.code}
                       </span>
                     </div>
@@ -318,37 +347,15 @@ const MyCourses = () => {
                       {course.name}
                     </h3>
                     <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-4">
-                      {course.category} | {course.credits} Credits
+                      {course.category}
                     </p>
-                    <div className="grid grid-cols-1 gap-3 text-xs font-bold text-slate-500">
-                      <div className="flex items-center gap-2">
-                        <Calendar size={14} className="text-slate-400" />
-                        {course.schedule}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <UserCircle size={14} className="text-slate-400" />
-                        {course.teacher}
-                      </div>
-                    </div>
-                    <div className="mt-6">
-                      <div className="flex items-center justify-between text-xs font-black text-slate-600 mb-2">
-                        <span>Progress</span>
-                        <span>{course.progress}%</span>
-                      </div>
-                      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-[#2D70FD] rounded-full transition-all"
-                          style={{ width: `${course.progress}%` }}
-                        />
-                      </div>
-                    </div>
                     <div className="mt-6 flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                         Not in your grade?
                       </div>
                       <button
                         onClick={() => setSelectedCourse(course)}
-                        className="px-4 py-2 bg-rose-50 text-rose-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-100 transition-all"
+                        className="px-4 py-2 bg-blue-50 text-blue-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-100 transition-all"
                       >
                         Appeal
                       </button>
@@ -357,77 +364,6 @@ const MyCourses = () => {
                 ))}
               </div>
             )}
-
-            <section className="bg-white border border-slate-100 rounded-[2.5rem] p-8 shadow-sm">
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-                <div>
-                  <p className="text-[10px] font-black text-blue-600 uppercase tracking-[0.3em]">
-                    Appeal Center
-                  </p>
-                  <h2 className="text-2xl font-black text-slate-900 tracking-tight mt-2">
-                    Fix course mismatches quickly
-                  </h2>
-                  <p className="text-sm text-slate-500 font-bold mt-2 max-w-2xl">
-                    If a subject appears that does not match your current grade,
-                    use the Appeal button on the course card. If a subject is
-                    missing, report it here.
-                  </p>
-                </div>
-                <button
-                  onClick={() => setShowMissingAppeal(true)}
-                  className="px-6 py-3 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-2 hover:bg-blue-700 transition-all shadow-lg"
-                >
-                  <Plus size={16} /> Report Missing Subject
-                </button>
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-6 mt-8">
-                <div className="p-6 bg-slate-50 border border-slate-100 rounded-2xl">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center">
-                      <AlertTriangle size={20} />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-black text-slate-800">
-                        Course Mismatch
-                      </h3>
-                      <p className="text-xs font-bold text-slate-400">
-                        Appeal a subject that does not belong to your grade.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-6 flex items-center justify-between text-xs font-bold text-slate-500">
-                    <span>Response time</span>
-                    <span className="flex items-center gap-2 text-slate-400">
-                      <ChevronDown size={14} className="-rotate-90" />
-                      3 working days
-                    </span>
-                  </div>
-                </div>
-
-                <div className="p-6 bg-blue-50/70 border border-blue-100 rounded-2xl">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-white text-blue-600 flex items-center justify-center">
-                      <BookOpen size={20} />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-black text-slate-800">
-                        Missing Subject
-                      </h3>
-                      <p className="text-xs font-bold text-slate-400">
-                        Request a subject that should appear this term.
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setShowMissingAppeal(true)}
-                    className="mt-6 w-full py-3 bg-white text-blue-700 border border-blue-200 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all"
-                  >
-                    File Missing Subject Appeal
-                  </button>
-                </div>
-              </div>
-            </section>
           </div>
         </main>
       </div>
@@ -450,7 +386,7 @@ const MyCourses = () => {
 
               <div className="space-y-4">
                 <div>
-                  <label className="text-xs font-black text-slate-700 uppercase tracking-wider block mb-2">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block mb-2">
                     Course
                   </label>
                   <input
@@ -462,13 +398,13 @@ const MyCourses = () => {
                 </div>
 
                 <div>
-                  <label className="text-xs font-black text-slate-700 uppercase tracking-wider block mb-2">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block mb-2">
                     Reason
                   </label>
                   <select
                     value={mismatchReason}
                     onChange={(e) => setMismatchReason(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500 focus:bg-white transition-all font-bold"
+                    className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all font-bold"
                   >
                     <option>Not in my grade</option>
                     <option>Wrong program/stream</option>
@@ -478,7 +414,7 @@ const MyCourses = () => {
                 </div>
 
                 <div>
-                  <label className="text-xs font-black text-slate-700 uppercase tracking-wider block mb-2">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block mb-2">
                     Details (optional)
                   </label>
                   <textarea
@@ -486,7 +422,7 @@ const MyCourses = () => {
                     value={mismatchDetails}
                     onChange={(e) => setMismatchDetails(e.target.value)}
                     placeholder="Add any extra context that will help the review team..."
-                    className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500 focus:bg-white transition-all font-bold resize-none"
+                    className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all font-bold resize-none"
                   />
                 </div>
               </div>
@@ -494,13 +430,13 @@ const MyCourses = () => {
               <div className="flex gap-3">
                 <button
                   onClick={() => setSelectedCourse(null)}
-                  className="flex-1 px-4 py-3 border border-slate-200 rounded-xl font-black text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                  className="flex-1 px-4 py-3 border border-slate-200 rounded-xl font-bold text-sm text-slate-700 hover:bg-slate-50 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={submitMismatchAppeal}
-                  className="flex-1 px-4 py-3 bg-rose-600 text-white rounded-xl font-black text-sm hover:bg-rose-700 transition-colors active:scale-95"
+                  className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors active:scale-95"
                 >
                   Submit Appeal
                 </button>
@@ -528,7 +464,7 @@ const MyCourses = () => {
 
               <div className="space-y-4">
                 <div>
-                  <label className="text-xs font-black text-slate-700 uppercase tracking-wider block mb-2">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block mb-2">
                     Subject Name
                   </label>
                   <input
@@ -538,22 +474,22 @@ const MyCourses = () => {
                       setMissingSubject(e.target.value);
                       if (missingSubjectError) setMissingSubjectError(false);
                     }}
-                    placeholder="e.g. Technical Drawing"
+                    placeholder="E.g. Chemistry"
                     className={`w-full bg-slate-50 border px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all font-bold ${
                       missingSubjectError
-                        ? "border-rose-300 focus:ring-rose-400"
+                        ? "border-blue-300 focus:ring-blue-400"
                         : "border-slate-200"
                     }`}
                   />
                   {missingSubjectError && (
-                    <p className="text-xs font-bold text-rose-500 mt-2">
+                    <p className="text-xs font-bold text-blue-600 mt-2">
                       Please enter the missing subject name.
                     </p>
                   )}
                 </div>
 
                 <div>
-                  <label className="text-xs font-black text-slate-700 uppercase tracking-wider block mb-2">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block mb-2">
                     Reason
                   </label>
                   <select
@@ -569,14 +505,14 @@ const MyCourses = () => {
                 </div>
 
                 <div>
-                  <label className="text-xs font-black text-slate-700 uppercase tracking-wider block mb-2">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block mb-2">
                     Additional Details (optional)
                   </label>
                   <textarea
                     rows="3"
                     value={missingDetails}
                     onChange={(e) => setMissingDetails(e.target.value)}
-                    placeholder="Include any helpful information, such as your registration date."
+                    placeholder="Include any helpful information"
                     className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all font-bold resize-none"
                   />
                 </div>
@@ -585,13 +521,13 @@ const MyCourses = () => {
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowMissingAppeal(false)}
-                  className="flex-1 px-4 py-3 border border-slate-200 rounded-xl font-black text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                  className="flex-1 px-4 py-3 border border-slate-200 rounded-xl font-bold text-sm text-slate-700 hover:bg-slate-50 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={submitMissingAppeal}
-                  className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl font-black text-sm hover:bg-blue-700 transition-colors active:scale-95"
+                  className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors active:scale-95"
                 >
                   Submit Request
                 </button>

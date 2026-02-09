@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Loader2, CheckCircle, Eye, EyeOff } from "lucide-react";
-import { toast, ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+import { toast } from "react-toastify";
 import logo from "../assets/logo.png";
 import loginIllustration from "../assets/Login.png";
+import api from "../api/client";
 
 const ResetPassword = () => {
   const location = useLocation();
@@ -13,8 +13,8 @@ const ResetPassword = () => {
   const [email] = useState(
     location.state?.email || sessionStorage.getItem("resetEmail") || "",
   );
-  const [code] = useState(
-    location.state?.code || sessionStorage.getItem("resetCode") || "",
+  const [resetToken] = useState(
+    location.state?.resetToken || sessionStorage.getItem("resetToken") || "",
   );
 
   const [loading, setLoading] = useState(false);
@@ -24,16 +24,16 @@ const ResetPassword = () => {
   const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
-    if (location.state?.email && location.state?.code) {
+    if (location.state?.email && location.state?.resetToken) {
       sessionStorage.setItem("resetEmail", location.state.email);
-      sessionStorage.setItem("resetCode", location.state.code);
+      sessionStorage.setItem("resetToken", location.state.resetToken);
     }
-    if (!email || !code) {
+    if (!email || !resetToken) {
       navigate("/login");
     }
-  }, [email, code, navigate, location.state]);
+  }, [email, resetToken, navigate, location.state]);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (password !== confirmPassword) {
@@ -50,9 +50,13 @@ const ResetPassword = () => {
 
     setLoading(true);
 
-    setTimeout(() => {
+    try {
+      await api.post("/auth/reset-password", {
+        resetToken,
+        newPassword: password,
+      });
       sessionStorage.removeItem("resetEmail");
-      sessionStorage.removeItem("resetCode");
+      sessionStorage.removeItem("resetToken");
 
       toast.success("Password updated successfully! Redirecting...", {
         position: "top-right",
@@ -61,7 +65,14 @@ const ResetPassword = () => {
 
       setSuccess(true);
       setTimeout(() => navigate("/login", { replace: true }), 3000);
-    }, 1500);
+    } catch (err) {
+      const message =
+        err.response?.data?.error ||
+        "Unable to reset password. Please try again.";
+      toast.error(message, { position: "top-right" });
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (success) {
@@ -87,7 +98,6 @@ const ResetPassword = () => {
 
   return (
     <div className="min-h-screen flex w-full bg-white font-sans overflow-hidden">
-      <ToastContainer />
       <div className="hidden lg:flex flex-1 items-center justify-center p-12 bg-[#fbfcff] border-r border-slate-100">
         <div className="relative w-full max-w-xl flex flex-col items-center">
           <img

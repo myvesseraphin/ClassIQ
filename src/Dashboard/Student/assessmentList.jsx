@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Search,
@@ -9,9 +9,12 @@ import {
   Trophy,
   CheckCircle2,
   BrainCircuit,
-  TrendingUp,
+  Loader2,
   X,
 } from "lucide-react";
+import { toast } from "react-toastify";
+import api from "../../api/client";
+import EmptyState from "../../Component/EmptyState";
 
 const AssessmentList = () => {
   const navigate = useNavigate();
@@ -19,52 +22,83 @@ const AssessmentList = () => {
   const [selectedTask, setSelectedTask] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeSubject, setActiveSubject] = useState("All");
+  const [assessments, setAssessments] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const subjects = ["All", "PHP", "Physics", "Web UI", "Basics of Database"];
-
-  const assessments = [
-    {
-      id: 1,
-      title: "PHP Frameworks",
-      subject: "PHP",
-      type: "Quiz",
-      date: "Jan 12, 2026",
-      status: "Completed",
-      grade: "88%",
-      weakArea: "Found Weakness in the use of Laravel",
-      predicted: "92%",
-      aiFeedback:
-        "Excellent Intro in Frameworks. Review the use of Laravel to hit your 92% goal.",
-    },
-    {
-      id: 2,
-      title: "CSS combinators",
-      subject: "Web UI",
-      type: "Midterm",
-      date: "Jan 22, 2026",
-      status: "In Progress",
-      grade: null,
-      predicted: "85%",
-    },
-    {
-      id: 3,
-      title: "GPS Calculations in Python",
-      subject: "Physics",
-      type: "Diagnostic",
-      date: "Jan 15, 2026",
-      status: "Completed",
-      grade: "72%",
-      weakArea: "Use of Python in the context of GPS calculation",
-      predicted: "78%",
-      aiFeedback: "Focus on studying basics of python (Arrays, variables)",
-    },
+  const subjects = [
+    "All",
+    ...Array.from(
+      new Set(assessments.map((a) => a.subject).filter(Boolean)),
+    ),
   ];
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadAssessments = async () => {
+      try {
+        const { data } = await api.get("/student/assessments");
+        if (isMounted && Array.isArray(data?.assessments)) {
+          setAssessments(data.assessments);
+        }
+      } catch (err) {
+        console.error("Failed to load assessments", err);
+        toast.error("Failed to load assessments.");
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    };
+    loadAssessments();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const filtered = assessments.filter(
     (a) =>
       (activeSubject === "All" || a.subject === activeSubject) &&
-      a.title.toLowerCase().includes(searchQuery.toLowerCase()),
+      (a.title || "").toLowerCase().includes(searchQuery.toLowerCase()),
   );
+
+  const parsePercent = (value) => {
+    if (!value) return null;
+    const num = Number(String(value).replace(/[^0-9.]/g, ""));
+    return Number.isFinite(num) ? num : null;
+  };
+
+  const completedAssessments = assessments.filter(
+    (a) => a.status === "Completed" && parsePercent(a.grade) !== null,
+  );
+  const avgGrade = completedAssessments.length
+    ? Math.round(
+        completedAssessments.reduce(
+          (sum, a) => sum + parsePercent(a.grade),
+          0,
+        ) / completedAssessments.length,
+      )
+    : 0;
+  const completionRate = assessments.length
+    ? Math.round((completedAssessments.length / assessments.length) * 100)
+    : 0;
+  const predictedValues = assessments
+    .map((a) => parsePercent(a.predicted))
+    .filter((v) => v !== null);
+  const avgPrediction = predictedValues.length
+    ? Math.round(
+        predictedValues.reduce((sum, v) => sum + v, 0) /
+          predictedValues.length,
+      )
+    : 0;
+
+  const noData = !isLoading && assessments.length === 0;
+  const noResults = !noData && filtered.length === 0;
+
+  if (isLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-[#F8FAFC]">
+        <Loader2 className="animate-spin text-blue-600" size={40} />
+      </div>
+    );
+  }
 
   return (
     <div className="w-full h-full animate-in fade-in duration-500 font-sans">
@@ -92,21 +126,21 @@ const AssessmentList = () => {
           {[
             {
               label: "Marks",
-              value: "82%",
+              value: `${avgGrade}%`,
               icon: <Trophy size={20} />,
               color: "text-blue-600",
               bg: "bg-blue-50",
             },
             {
               label: "Completion",
-              value: "94%",
+              value: `${completionRate}%`,
               icon: <CheckCircle2 size={20} />,
               color: "text-emerald-600",
               bg: "bg-emerald-50",
             },
             {
               label: "Prediction",
-              value: "87%",
+              value: `${avgPrediction}%`,
               icon: <BrainCircuit size={20} />,
               color: "text-purple-600",
               bg: "bg-purple-50",
@@ -133,35 +167,41 @@ const AssessmentList = () => {
           ))}
         </div>
 
-        <div className="flex flex-col lg:flex-row gap-4 items-center justify-between">
-          <div className="flex items-center gap-2 overflow-x-auto w-full lg:w-auto pb-2 lg:pb-0 scrollbar-hide">
-            {subjects.map((sub) => (
-              <button
-                key={sub}
-                onClick={() => setActiveSubject(sub)}
-                className={`px-5 py-2.5 rounded-xl font-bold text-sm border border-slate-200 transition-all
-                  ${activeSubject === sub ? "bg-blue-50 text-[#2D70FD] border-blue-200" : "bg-white text-slate-500 hover:border-blue-100 hover:text-[#2D70FD]"}`}
-              >
-                {sub}
-              </button>
-            ))}
-          </div>
-          <div className="relative w-full lg:w-96">
-            <Search
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-              size={20}
-            />
-            <input
-              type="text"
-              placeholder="Search your assessments..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-12 pr-6 py-3.5 bg-white border-2 border-slate-100 rounded-2xl outline-none focus:border-[#2D70FD] transition-all font-medium text-slate-700 shadow-sm"
-            />
-          </div>
-        </div>
+        {noData ? (
+          <EmptyState />
+        ) : (
+          <>
+            <div className="flex flex-col lg:flex-row gap-4 items-center justify-between">
+              <div className="flex items-center gap-2 overflow-x-auto w-full lg:w-auto pb-2 lg:pb-0 scrollbar-hide">
+                {subjects.map((sub) => (
+                  <button
+                    key={sub}
+                    onClick={() => setActiveSubject(sub)}
+                    className={`px-5 py-2.5 rounded-xl font-bold text-sm border border-slate-200 transition-all
+                      ${activeSubject === sub ? "bg-blue-50 text-[#2D70FD] border-blue-200" : "bg-white text-slate-500 hover:border-blue-100 hover:text-[#2D70FD]"}`}
+                  >
+                    {sub}
+                  </button>
+                ))}
+              </div>
+              <div className="relative w-full lg:w-96">
+                <Search
+                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                  size={20}
+                />
+                <input
+                  type="text"
+                  placeholder="Search your assessments..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-12 pr-6 py-3.5 bg-white border-2 border-slate-100 rounded-2xl outline-none focus:border-[#2D70FD] transition-all font-medium text-slate-700 shadow-sm"
+                />
+              </div>
+            </div>
 
-        {viewMode === "list" ? (
+            {noResults ? (
+              <EmptyState />
+            ) : viewMode === "list" ? (
           <div className="bg-white border border-slate-100 rounded-[2.5rem] overflow-hidden shadow-sm">
             <table className="w-full text-left">
               <thead>
@@ -274,6 +314,8 @@ const AssessmentList = () => {
               </div>
             ))}
           </div>
+        )}
+          </>
         )}
       </div>
 

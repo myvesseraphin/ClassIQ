@@ -10,58 +10,95 @@ import {
   X,
   Eye,
   ExternalLink,
+  Loader2,
 } from "lucide-react";
+import { toast } from "react-toastify";
+import api from "../../api/client";
+import EmptyState from "../../Component/EmptyState";
 
 const Resources = () => {
   const [viewMode, setViewMode] = useState("grid");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSubject, setSelectedSubject] = useState("All");
   const [selectedFile, setSelectedFile] = useState(null);
+  const [files, setFiles] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const apiBase = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
+  const fileOrigin = apiBase.replace(/\/api\/?$/, "");
 
-  const subjects = ["All", "Mathematics", "Physics", "Chemistry", "Biology"];
+  const resolveResourceUrl = (file) => {
+    if (!file?.url) return "";
+    return file.url.startsWith("/") ? `${fileOrigin}${file.url}` : file.url;
+  };
 
-  const files = [
-    {
-      id: 1,
-      name: "Calculus Unit 3: Integrals",
-      subject: "Mathematics",
-      type: "PDF",
-      size: "1.2MB",
-      date: "Jan 12, 2026",
-    },
-    {
-      id: 2,
-      name: "Quantum Mechanics Intro",
-      subject: "Physics",
-      type: "PDF",
-      size: "2.4MB",
-      date: "Jan 15, 2026",
-    },
-    {
-      id: 3,
-      name: "Organic Compounds Guide",
-      subject: "Chemistry",
-      type: "Doc",
-      size: "850KB",
-      date: "Jan 18, 2026",
-    },
-    {
-      id: 4,
-      name: "Cell Structure Notes",
-      subject: "Biology",
-      type: "PDF",
-      size: "3.1MB",
-      date: "Jan 20, 2026",
-    },
+  const getFileExtension = (file) => {
+    const url = resolveResourceUrl(file);
+    const match = url.match(/\.([a-z0-9]+)(?:\?|#|$)/i);
+    if (match) return match[1].toLowerCase();
+    return "";
+  };
+
+  const isPdfFile = (file) => {
+    const ext = getFileExtension(file);
+    if (ext === "pdf") return true;
+    return String(file?.type || "").toLowerCase().includes("pdf");
+  };
+
+  const isImageFile = (file) => {
+    const ext = getFileExtension(file);
+    if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) return true;
+    return String(file?.type || "").toLowerCase().includes("image");
+  };
+
+  const subjects = [
+    "All",
+    ...Array.from(new Set(files.map((file) => file.subject).filter(Boolean))),
   ];
 
-  const handleDownload = (fileName) => {
+  React.useEffect(() => {
+    let isMounted = true;
+    const loadResources = async () => {
+      try {
+        const { data } = await api.get("/student/resources");
+        if (isMounted && Array.isArray(data?.resources)) {
+          setFiles(data.resources);
+        }
+      } catch (err) {
+        console.error("Failed to load resources", err);
+        toast.error("Failed to load resources.");
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    };
+    loadResources();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleDownload = (file) => {
+    if (file?.url) {
+      const targetUrl = file.url.startsWith("/")
+        ? `${fileOrigin}${file.url}`
+        : file.url;
+      const link = document.createElement("a");
+      link.href = targetUrl;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.download = file.name || "resource";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
     const blob = new Blob(["ClassIQ Mock Resource Content"], {
       type: "application/pdf",
     });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = fileName.endsWith(".pdf") ? fileName : `${fileName}.pdf`;
+    link.download = file?.name?.endsWith(".pdf")
+      ? file.name
+      : `${file?.name || "resource"}.pdf`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -70,8 +107,16 @@ const Resources = () => {
   const filteredFiles = files.filter(
     (f) =>
       (selectedSubject === "All" || f.subject === selectedSubject) &&
-      f.name.toLowerCase().includes(searchQuery.toLowerCase()),
+      (f.name || "").toLowerCase().includes(searchQuery.toLowerCase()),
   );
+
+  if (isLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-[#F8FAFC]">
+        <Loader2 className="animate-spin text-blue-600" size={40} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
@@ -129,7 +174,11 @@ const Resources = () => {
               </div>
             </div>
 
-            {viewMode === "grid" ? (
+            {files.length === 0 ? (
+              <EmptyState />
+            ) : filteredFiles.length === 0 ? (
+              <EmptyState />
+            ) : viewMode === "grid" ? (
               <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-8">
                 {filteredFiles.map((file) => (
                   <div
@@ -158,7 +207,7 @@ const Resources = () => {
                         <Eye size={18} /> View
                       </button>
                       <button
-                        onClick={() => handleDownload(file.name)}
+                        onClick={() => handleDownload(file)}
                         className="py-4 bg-[#2D70FD] text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:shadow-lg transition-all shadow-sm"
                       >
                         <Download size={18} /> Get
@@ -214,7 +263,7 @@ const Resources = () => {
                             <Eye size={18} />
                           </button>
                           <button
-                            onClick={() => handleDownload(file.name)}
+                          onClick={() => handleDownload(file)}
                             className="p-3 bg-white border border-slate-100 text-[#2D70FD] rounded-xl hover:bg-[#2D70FD] hover:text-white transition-all shadow-sm"
                           >
                             <Download size={18} />
@@ -251,7 +300,15 @@ const Resources = () => {
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <button className="p-3 text-slate-400 hover:text-[#2D70FD] hover:bg-blue-50 rounded-xl transition-all">
+                  <button
+                    onClick={() => {
+                      if (selectedFile?.url) {
+                        const targetUrl = resolveResourceUrl(selectedFile);
+                        window.open(targetUrl, "_blank", "noopener");
+                      }
+                    }}
+                    className="p-3 text-slate-400 hover:text-[#2D70FD] hover:bg-blue-50 rounded-xl transition-all"
+                  >
                     <ExternalLink size={20} />
                   </button>
                   <button
@@ -264,17 +321,34 @@ const Resources = () => {
               </div>
 
               <div className="flex-1 bg-slate-50 p-6 md:p-10 overflow-hidden">
-                <div className="w-full h-full bg-white rounded-[2rem] border border-slate-200 shadow-inner flex flex-col items-center justify-center text-center p-10">
-                  <div className="w-24 h-24 bg-blue-50 rounded-full flex items-center justify-center text-[#2D70FD] mb-6">
-                    <BookOpen size={48} />
-                  </div>
-                  <h3 className="text-2xl font-black text-slate-800 mb-2">
-                    Document Preview
-                  </h3>
-                  <p className="text-slate-500 font-medium max-w-sm">
-                    In the production environment, the PDF viewer will render
-                    the full document here for reading and analysis.
-                  </p>
+                <div className="w-full h-full bg-white rounded-[2rem] border border-slate-200 shadow-inner flex flex-col items-center justify-center text-center overflow-hidden">
+                  {selectedFile?.url && isPdfFile(selectedFile) ? (
+                    <iframe
+                      title={selectedFile.name || "Resource Preview"}
+                      src={resolveResourceUrl(selectedFile)}
+                      className="w-full h-full"
+                    />
+                  ) : selectedFile?.url && isImageFile(selectedFile) ? (
+                    <div className="w-full h-full flex items-center justify-center p-6">
+                      <img
+                        src={resolveResourceUrl(selectedFile)}
+                        alt={selectedFile.name || "Resource Preview"}
+                        className="max-h-full max-w-full object-contain"
+                      />
+                    </div>
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center text-center p-10">
+                      <div className="w-24 h-24 bg-blue-50 rounded-full flex items-center justify-center text-[#2D70FD] mb-6">
+                        <BookOpen size={48} />
+                      </div>
+                      <h3 className="text-2xl font-black text-slate-800 mb-2">
+                        Preview not available
+                      </h3>
+                      <p className="text-slate-500 font-medium max-w-sm">
+                        Open the file in a new tab to view it.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -286,7 +360,7 @@ const Resources = () => {
                   Close Viewer
                 </button>
                 <button
-                  onClick={() => handleDownload(selectedFile.name)}
+                  onClick={() => handleDownload(selectedFile)}
                   className="px-10 py-4 bg-[#2D70FD] text-white rounded-[1.5rem] font-black shadow-lg shadow-blue-100 hover:scale-105 transition-all"
                 >
                   Download Now

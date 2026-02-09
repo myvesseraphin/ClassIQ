@@ -1,13 +1,14 @@
 import { Navigate, useLocation } from "react-router-dom";
 
-const ProtectedRoute = ({ children, allowedRoles }) => {
+const ProtectedRoute = ({ children, allowedRoles, redirectTo = "/login" }) => {
   const location = useLocation();
   const user = JSON.parse(localStorage.getItem("classiq_user"));
-  const isAuthenticated = !!user;
+  const token = localStorage.getItem("token");
+  const isAuthenticated = !!user && !!token;
   const userRole = user?.role;
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
+    return <Navigate to={redirectTo} state={{ from: location }} replace />;
   }
 
   if (allowedRoles && !allowedRoles.includes(userRole)) {

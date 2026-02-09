@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect } from "react";
-import profileImageFile from "../../assets/Seraphin.jpeg";
 import { useNavigate } from "react-router-dom";
 import {
   User,
@@ -15,6 +14,8 @@ import {
   CheckCircle2,
   AlertCircle,
 } from "lucide-react";
+import { toast } from "react-toastify";
+import api, { resolveMediaUrl } from "../../api/client";
 
 const StudentProfile = () => {
   const navigate = useNavigate();
@@ -23,14 +24,13 @@ const StudentProfile = () => {
   const [isLoading, setIsLoading] = useState(true);
   const fileInputRef = useRef(null);
 
-  const [toast, setToast] = useState({
+  const [toastState, setToastState] = useState({
     show: false,
     message: "",
     type: "success",
   });
 
-  const [currentProfileImage, setCurrentProfileImage] =
-    useState(profileImageFile);
+  const [currentProfileImage, setCurrentProfileImage] = useState("");
 
   const [formData, setFormData] = useState({
     firstName: "MANZI SHIMWA",
@@ -46,25 +46,80 @@ const StudentProfile = () => {
   });
 
   useEffect(() => {
-    const timer = setTimeout(() => setIsLoading(false), 1000);
-    return () => clearTimeout(timer);
+    let isMounted = true;
+    const loadProfile = async () => {
+      try {
+        const { data } = await api.get("/student/profile");
+        if (!isMounted) return;
+        const fullFirst = data.user?.firstName || "";
+        const fullLast = data.user?.lastName || "";
+        setFormData((prev) => ({
+          ...prev,
+          firstName: fullFirst,
+          lastName: fullLast,
+          email: data.user?.email || prev.email,
+          studentId: data.user?.studentId || prev.studentId,
+          gradeLevel: data.user?.gradeLevel || prev.gradeLevel,
+          className: data.user?.className || prev.className,
+          notifications: data.settings?.notifications ?? prev.notifications,
+          autoSync: data.settings?.autoSync ?? prev.autoSync,
+        }));
+        if (data.user?.avatarUrl) {
+          setCurrentProfileImage(resolveMediaUrl(data.user.avatarUrl));
+        } else {
+          setCurrentProfileImage("");
+        }
+      } catch (err) {
+        console.error("Failed to load profile", err);
+      toast.error("Failed to load profile.");
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    };
+    loadProfile();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const showNotification = (message, type = "success") => {
-    setToast({ show: true, message, type });
+    setToastState({ show: true, message, type });
     setTimeout(
-      () => setToast({ show: false, message: "", type: "success" }),
+      () => setToastState({ show: false, message: "", type: "success" }),
       3000,
     );
   };
 
   const handleImageClick = () => fileInputRef.current?.click();
 
-  const handleImageChange = (event) => {
-    const file = event.target.files[0];
-    if (file && file.type.startsWith("image/")) {
-      setCurrentProfileImage(URL.createObjectURL(file));
-      showNotification("Image preview updated!");
+  const handleImageChange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select a valid image file.");
+      return;
+    }
+    try {
+      const uploadData = new FormData();
+      uploadData.append("file", file);
+      const { data: upload } = await api.post("/uploads", uploadData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      const avatarUrl = upload?.file?.url;
+      if (!avatarUrl) {
+        throw new Error("Upload failed.");
+      }
+      const { data: profile } = await api.patch("/student/profile", {
+        avatarUrl,
+      });
+      const nextUrl = resolveMediaUrl(profile?.user?.avatarUrl || avatarUrl);
+      setCurrentProfileImage(nextUrl);
+      showNotification("Profile image updated!");
+    } catch (err) {
+      console.error("Failed to update profile image", err);
+      toast.error("Failed to update profile image.");
+    } finally {
+      event.target.value = "";
     }
   };
 
@@ -73,8 +128,19 @@ const StudentProfile = () => {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const toggleSetting = (field) => {
-    setFormData((prev) => ({ ...prev, [field]: !prev[field] }));
+  const toggleSetting = async (field) => {
+    const nextValue = !formData[field];
+    setFormData((prev) => ({ ...prev, [field]: nextValue }));
+    try {
+      await api.patch("/student/profile/settings", {
+        notifications: field === "notifications" ? nextValue : undefined,
+        autoSync: field === "autoSync" ? nextValue : undefined,
+      });
+    } catch (err) {
+      console.error("Failed to update settings", err);
+      toast.error("Failed to update settings.");
+      setFormData((prev) => ({ ...prev, [field]: !nextValue }));
+    }
   };
 
   const handleSave = () => {
@@ -91,6 +157,7 @@ const StudentProfile = () => {
   };
 
   const handleLogout = () => {
+    localStorage.clear();
     navigate("/login");
   };
 
@@ -104,18 +171,18 @@ const StudentProfile = () => {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] font-sans selection:bg-blue-100 selection:text-blue-600 pb-40 relative">
-      {toast.show && (
+      {toastState.show && (
         <div className="fixed top-10 left-1/2 -translate-x-1/2 z-[100] animate-in fade-in slide-in-from-top-4 duration-300">
           <div
-            className={`flex items-center gap-3 px-6 py-4 rounded-[1.5rem] shadow-2xl border bg-white ${toast.type === "success" ? "border-emerald-100 text-emerald-600" : "border-rose-100 text-rose-600"}`}
+            className={`flex items-center gap-3 px-6 py-4 rounded-[1.5rem] shadow-2xl border bg-white ${toastState.type === "success" ? "border-emerald-100 text-emerald-600" : "border-rose-100 text-rose-600"}`}
           >
-            {toast.type === "success" ? (
+            {toastState.type === "success" ? (
               <CheckCircle2 size={18} />
             ) : (
               <AlertCircle size={18} />
             )}
             <span className="text-[11px] font-black uppercase tracking-widest">
-              {toast.message}
+              {toastState.message}
             </span>
           </div>
         </div>

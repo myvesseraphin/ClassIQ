@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { Mail, Lock, Facebook, ArrowRight, Loader2, X } from "lucide-react";
+import { Mail, Lock, ArrowRight, Loader2, X } from "lucide-react";
 import { toast } from "react-toastify";
 import logo from "../assets/logo.png";
 import loginIllustration from "../assets/Login.png";
 import api from "../api/client";
 
-const Login = () => {
+const LibraryLogin = () => {
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -32,7 +32,7 @@ const Login = () => {
       const { data } = await api.post("/auth/login", formData);
       localStorage.setItem("token", data.token);
       localStorage.setItem("classiq_user", JSON.stringify(data.user));
-      navigate("/student");
+      navigate("/library");
     } catch (err) {
       const message =
         err.response?.data?.error || "Unable to sign in. Please try again.";
@@ -57,15 +57,15 @@ const Login = () => {
         <div className="relative w-full max-w-xl flex flex-col items-center">
           <img
             src={loginIllustration}
-            alt="ClassIQ AI Learning"
+            alt="ClassIQ Library"
             className="w-full h-auto drop-shadow-2xl rounded-[2rem] object-cover mb-8"
           />
           <div className="text-center">
             <h2 className="text-xl font-bold text-slate-800 tracking-tight">
-              Master your productivity
+              ClassIQ Library Access
             </h2>
             <p className="text-sm text-slate-400 mt-2 font-medium">
-              Join ClassIQ for smart performance analysis.
+              Upload, organize, and share learning resources.
             </p>
           </div>
         </div>
@@ -80,7 +80,10 @@ const Login = () => {
                 ClassIQ
               </h1>
             </Link>
-            <h2 className="text-xl font-bold text-slate-800">Welcome Back</h2>
+            <h2 className="text-xl font-bold text-slate-800">Library Login</h2>
+            <p className="text-sm text-slate-400 font-medium mt-2">
+              Use your ClassIQ credentials.
+            </p>
           </div>
           <form onSubmit={handleLogin} className="space-y-5">
             <div className="space-y-2">
@@ -104,18 +107,9 @@ const Login = () => {
               </div>
             </div>
             <div className="space-y-2">
-              <div className="flex justify-between items-center ml-1">
-                <label className="text-sm font-bold text-slate-800">
-                  Password
-                </label>
-                <button
-                  type="button"
-                  onClick={() => navigate("/forgot-password")}
-                  className="text-xs text-blue-600 font-bold hover:underline"
-                >
-                  Forgot?
-                </button>
-              </div>
+              <label className="text-sm font-bold text-slate-800 ml-1">
+                Password
+              </label>
               <div className="relative">
                 <Lock
                   className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300"
@@ -135,48 +129,16 @@ const Login = () => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-[#1877F2] text-white py-4 rounded-3xl font-bold shadow-lg shadow-blue-100 flex items-center justify-center gap-2 transition-transform active:scale-95 disabled:opacity-70 mt-4"
+              className="w-full bg-black text-white py-4 rounded-3xl font-bold shadow-lg shadow-slate-200 flex items-center justify-center gap-2 transition-transform active:scale-95 disabled:opacity-70 mt-4"
             >
               {loading ? (
                 <Loader2 className="animate-spin" size={18} />
               ) : (
                 <>
-                  Log in <ArrowRight size={18} />
+                  Enter Library <ArrowRight size={18} />
                 </>
               )}
             </button>
-            <div className="flex items-center py-2">
-              <div className="flex-grow border-t border-slate-100"></div>
-              <span className="mx-4 text-xs font-bold text-slate-300 uppercase tracking-widest">
-                or
-              </span>
-              <div className="flex-grow border-t border-slate-100"></div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <button className="flex items-center justify-center gap-2 border border-slate-100 bg-white py-3 rounded-2xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all">
-                <Facebook size={16} className="text-[#1877F2] fill-current" />{" "}
-                Facebook
-              </button>
-              <button className="flex items-center justify-center gap-2 border border-slate-100 bg-white py-3 rounded-2xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all">
-                <img
-                  src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
-                  alt="G"
-                  className="w-4 h-4"
-                />{" "}
-                Google
-              </button>
-            </div>
-            <div className="pt-6 text-center">
-              <p className="text-sm text-slate-500 font-medium">
-                Don't have an account?
-                <Link
-                  to="/request-access"
-                  className="ml-2 text-blue-600 font-bold hover:underline"
-                >
-                  Request Access
-                </Link>
-              </p>
-            </div>
           </form>
         </div>
       </div>
@@ -184,4 +146,4 @@ const Login = () => {
   );
 };
 
-export default Login;
+export default LibraryLogin;

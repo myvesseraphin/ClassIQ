@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { Calendar, Plus, X, Clock, MapPin, ChevronLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "react-toastify";
+import api from "../../api/client";
 
 const Schedule = () => {
   const navigate = useNavigate();
@@ -12,116 +14,7 @@ const Schedule = () => {
   };
   const [currentWeekStart] = useState(getCurrentWeekStart());
   const [showAddClass, setShowAddClass] = useState(false);
-  const [classes, setClasses] = useState([
-    {
-      id: 1,
-      day: 0,
-      startTime: "08:00",
-      endTime: "09:00",
-      title: "French",
-      room: "Room 101",
-      instructor: "Dr. John Smith",
-    },
-    {
-      id: 2,
-      day: 0,
-      startTime: "09:00",
-      endTime: "10:30",
-      title: "Client Project Kickoff",
-      room: "Room 101",
-      instructor: "Dr. John Smith",
-    },
-    {
-      id: 3,
-      day: 0,
-      startTime: "10:00",
-      endTime: "11:00",
-      title: "Client Meeting Planning",
-      room: "Room 102",
-      instructor: "Prof. Jane Doe",
-    },
-    {
-      id: 4,
-      day: 1,
-      startTime: "09:00",
-      endTime: "10:00",
-      title: "New Project Kickoff Meeting",
-      room: "Room 105",
-      instructor: "Mr. Wilson",
-    },
-    {
-      id: 5,
-      day: 1,
-      startTime: "10:00",
-      endTime: "11:00",
-      title: "Stand-up Meeting",
-      room: "Room 102",
-      instructor: "Prof. Jane Doe",
-    },
-    {
-      id: 6,
-      day: 2,
-      startTime: "08:00",
-      endTime: "10:00",
-      title: "Client Meeting Planning",
-      room: "Room 201",
-      instructor: "Ms. Sarah Johnson",
-    },
-    {
-      id: 7,
-      day: 2,
-      startTime: "10:00",
-      endTime: "11:00",
-      title: "Design Refinement",
-      room: "Room 201",
-      instructor: "Mr. Peter Wilson",
-    },
-    {
-      id: 8,
-      day: 2,
-      startTime: "11:00",
-      endTime: "12:00",
-      title: "Collaboration with Development Team",
-      room: "Room 202",
-      instructor: "Dev Team",
-    },
-    {
-      id: 9,
-      day: 3,
-      startTime: "09:00",
-      endTime: "10:00",
-      title: "Design Refinement",
-      room: "Room 103",
-      instructor: "Design Team",
-    },
-    {
-      id: 10,
-      day: 4,
-      startTime: "08:00",
-      endTime: "10:00",
-      title: "Design Refinement",
-      room: "Room 104",
-      instructor: "Design Team",
-    },
-    {
-      id: 11,
-      day: 4,
-      startTime: "10:00",
-      endTime: "11:00",
-      title: "Planning & Final Sorting for the Week",
-      room: "Room 105",
-      instructor: "Team",
-    },
-    {
-      id: 12,
-      day: 4,
-      startTime: "11:00",
-      endTime: "12:00",
-      title: "Meeting with Admin Internal team",
-      room: "Room 106",
-      instructor: "Admin",
-    },
-  ]);
+  const [classes, setClasses] = useState([]);
   const [classData, setClassData] = useState({
     day: 0,
     startTime: "08:00",
@@ -130,6 +23,25 @@ const Schedule = () => {
     room: "",
     instructor: "",
   });
+
+  React.useEffect(() => {
+    let isMounted = true;
+    const loadSchedule = async () => {
+      try {
+        const { data } = await api.get("/student/schedule");
+        if (isMounted && Array.isArray(data?.classes)) {
+          setClasses(data.classes);
+        }
+      } catch (err) {
+        console.error("Failed to load schedule", err);
+        toast.error("Failed to load schedule.");
+      }
+    };
+    loadSchedule();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const daysOfWeek = ["Mon", "Tue", "Wed", "Thu", "Fri"];
   const timeHours = Array.from({ length: 10 }, (_, i) => i + 8);
@@ -160,30 +72,41 @@ const Schedule = () => {
     return colors[index];
   };
 
-  const addClass = () => {
+  const addClass = async () => {
     if (!classData.title || !classData.startTime || !classData.endTime) {
       alert("Please fill in all required fields");
       return;
     }
-    const newClass = {
-      id: Math.max(...classes.map((c) => c.id), 0) + 1,
-      ...classData,
-      day: parseInt(classData.day),
-    };
-    setClasses([...classes, newClass]);
-    setClassData({
-      day: 0,
-      startTime: "08:00",
-      endTime: "09:00",
-      title: "",
-      room: "",
-      instructor: "",
-    });
-    setShowAddClass(false);
+    try {
+      const payload = {
+        ...classData,
+        day: parseInt(classData.day),
+      };
+      const { data } = await api.post("/student/schedule", payload);
+      setClasses((prev) => [...prev, data.class]);
+      setClassData({
+        day: 0,
+        startTime: "08:00",
+        endTime: "09:00",
+        title: "",
+        room: "",
+        instructor: "",
+      });
+      setShowAddClass(false);
+    } catch (err) {
+      console.error("Failed to add class", err);
+      toast.error("Failed to add class.");
+    }
   };
 
-  const deleteClass = (id) => {
-    setClasses(classes.filter((c) => c.id !== id));
+  const deleteClass = async (id) => {
+    try {
+      await api.delete(`/student/schedule/${id}`);
+      setClasses((prev) => prev.filter((c) => c.id !== id));
+    } catch (err) {
+      console.error("Failed to delete class", err);
+      toast.error("Failed to delete class.");
+    }
   };
 
   return (

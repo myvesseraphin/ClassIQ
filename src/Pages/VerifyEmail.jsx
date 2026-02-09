@@ -1,10 +1,10 @@
 import React, { useState, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Loader2, CheckCircle } from "lucide-react";
-import { toast, ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+import { toast } from "react-toastify";
 import logo from "../assets/logo.png";
 import loginIllustration from "../assets/Login.png";
+import api from "../api/client";
 
 const VerifyEmail = () => {
   const navigate = useNavigate();
@@ -41,7 +41,7 @@ const VerifyEmail = () => {
     }
   };
 
-  const handleVerify = (e) => {
+  const handleVerify = async (e) => {
     if (e) e.preventDefault();
     const code = otp.join("");
 
@@ -52,23 +52,40 @@ const VerifyEmail = () => {
 
     setLoading(true);
 
-    setTimeout(() => {
-      setLoading(false);
+    try {
+      const { data } = await api.post("/auth/verify-reset-code", { email, code });
+      sessionStorage.setItem("resetToken", data.resetToken);
       toast.success("Verification successful! Redirecting...", {
         position: "top-right",
         autoClose: 2000,
       });
-
       setSuccess(true);
       setTimeout(
         () =>
           navigate("/reset-password", {
-            state: { email, code },
+            state: { email, resetToken: data.resetToken },
             replace: true,
           }),
-        2000,
+        1800,
       );
-    }, 1500);
+    } catch (err) {
+      const message =
+        err.response?.data?.error || "Invalid verification code.";
+      toast.error(message, { position: "top-right" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    try {
+      await api.post("/auth/request-password-reset", { email });
+      toast.info("A new code has been sent.");
+    } catch (err) {
+      const message =
+        err.response?.data?.error || "Unable to resend code.";
+      toast.error(message);
+    }
   };
 
   if (success) {
@@ -89,7 +106,6 @@ const VerifyEmail = () => {
 
   return (
     <div className="min-h-screen flex w-full bg-white font-sans overflow-hidden">
-      <ToastContainer />
       <div className="hidden lg:flex flex-1 items-center justify-center p-12 bg-[#fbfcff] border-r border-slate-100">
         <div className="relative w-full max-w-xl flex flex-col items-center">
           <img
@@ -144,7 +160,7 @@ const VerifyEmail = () => {
               <button
                 type="button"
                 className="text-blue-500 hover:underline"
-                onClick={() => toast.info("Resend code simulated")}
+                onClick={handleResend}
               >
                 Resend
               </button>
