@@ -15,11 +15,12 @@ dotenv.config();
 const app = express();
 app.set("trust proxy", 1);
 
+const isProduction = process.env.NODE_ENV === "production";
 const allowedOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(",").map((origin) => origin.trim())
   : [];
 
-if (process.env.NODE_ENV === "production" && allowedOrigins.length === 0) {
+if (isProduction && allowedOrigins.length === 0) {
   throw new Error("CORS_ORIGIN must be set in production.");
 }
 
@@ -33,6 +34,7 @@ app.use(
   cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
+      if (!isProduction) return callback(null, true);
       if (allowedOrigins.length === 0) return callback(null, true);
       if (allowedOrigins.includes(origin)) return callback(null, true);
       return callback(new Error("Not allowed by CORS"));

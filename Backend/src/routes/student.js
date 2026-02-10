@@ -127,6 +127,156 @@ const getActiveSubjects = async (userId) => {
   return rows.map((row) => row.name).filter(Boolean);
 };
 
+router.get("/search", async (req, res, next) => {
+  try {
+    const queryText = String(req.query.q || "").trim();
+    if (!queryText) {
+      return res.json({
+        query: "",
+        results: {
+          courses: [],
+          tasks: [],
+          assessments: [],
+          exercises: [],
+          resources: [],
+        },
+      });
+    }
+
+    const likeQuery = `%${queryText}%`;
+    const subjects = await getActiveSubjects(req.user.id);
+
+    const [
+      coursesResult,
+      tasksResult,
+      assessmentsResult,
+      exercisesResult,
+    ] = await Promise.all([
+      query(
+        `SELECT c.id,
+                c.name AS title,
+                c.code
+           FROM student_courses sc
+           JOIN courses c ON c.id = sc.course_id
+          WHERE sc.user_id = $1
+            AND (c.name ILIKE $2 OR c.code ILIKE $2)
+          ORDER BY c.name
+          LIMIT 5`,
+        [req.user.id, likeQuery],
+      ),
+      query(
+        `SELECT id,
+                title,
+                due_date AS "dueDate"
+           FROM tasks
+          WHERE user_id = $1
+            AND title ILIKE $2
+          ORDER BY due_date NULLS LAST
+          LIMIT 5`,
+        [req.user.id, likeQuery],
+      ),
+      query(
+        `SELECT id,
+                title,
+                subject,
+                status
+           FROM assessments
+          WHERE user_id = $1
+            AND (title ILIKE $2 OR subject ILIKE $2)
+          ORDER BY assessment_date DESC NULLS LAST
+          LIMIT 5`,
+        [req.user.id, likeQuery],
+      ),
+      query(
+        `SELECT id,
+                name,
+                subject
+           FROM exercises
+          WHERE user_id = $1
+            AND (name ILIKE $2 OR subject ILIKE $2)
+          ORDER BY exercise_date DESC NULLS LAST
+          LIMIT 5`,
+        [req.user.id, likeQuery],
+      ),
+    ]);
+
+    let resourcesResult = { rows: [] };
+    if (subjects.length > 0) {
+      const { rows: profileRows } = await query(
+        `SELECT grade_level AS "gradeLevel"
+           FROM user_profiles
+          WHERE user_id = $1`,
+        [req.user.id],
+      );
+      const currentLevel = profileRows[0]?.gradeLevel || null;
+      if (currentLevel) {
+        resourcesResult = await query(
+          `SELECT id,
+                  name,
+                  subject
+             FROM resources
+            WHERE subject = ANY($1::text[])
+              AND (
+                levels IS NULL
+                OR array_length(levels, 1) = 0
+                OR EXISTS (
+                  SELECT 1
+                  FROM unnest(levels) level_item
+                  WHERE lower(level_item) = lower($2)
+                     OR lower($2) LIKE lower(level_item) || '%'
+                     OR lower(level_item) LIKE lower($2) || '%'
+                )
+              )
+              AND (name ILIKE $3 OR subject ILIKE $3)
+            ORDER BY resource_date DESC NULLS LAST
+            LIMIT 5`,
+          [subjects, currentLevel, likeQuery],
+        );
+      }
+    }
+
+    return res.json({
+      query: queryText,
+      results: {
+        courses: coursesResult.rows.map((row) => ({
+          id: row.id,
+          title: row.title,
+          subtitle: row.code ? `Code: ${row.code}` : null,
+          route: "/student/my-courses",
+        })),
+        tasks: tasksResult.rows.map((row) => ({
+          id: row.id,
+          title: row.title,
+          subtitle: row.dueDate ? `Due: ${formatShortDate(row.dueDate)}` : null,
+          route: "/student/tasks",
+        })),
+        assessments: assessmentsResult.rows.map((row) => ({
+          id: row.id,
+          title: row.title,
+          subtitle: row.subject
+            ? `${row.subject}${row.status ? ` · ${row.status}` : ""}`
+            : row.status || null,
+          route: "/student/assessments",
+        })),
+        exercises: exercisesResult.rows.map((row) => ({
+          id: row.id,
+          title: row.name,
+          subtitle: row.subject || null,
+          route: "/student/exercise",
+        })),
+        resources: resourcesResult.rows.map((row) => ({
+          id: row.id,
+          title: row.name,
+          subtitle: row.subject || null,
+          route: "/student/resources",
+        })),
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.get("/profile", async (req, res, next) => {
   try {
     const { rows } = await query(

@@ -22,6 +22,7 @@ import StudentProfile from "./Dashboard/Student/studentProfile";
 import Notifications from "./Dashboard/Student/Notifications";
 import Tasks from "./Dashboard/Student/Tasks";
 import Schedule from "./Dashboard/Student/Schedule";
+import Help from "./Dashboard/Student/Help";
 import LibraryDashboard from "./Dashboard/Student/LibraryDashboard";
 import LibraryResources from "./Dashboard/Student/LibraryResources";
 import LibraryLayout from "./Dashboard/Library/LibraryLayout";
@@ -102,6 +103,7 @@ function App() {
           <Route path="profile" element={<StudentProfile />} />
           <Route path="tasks" element={<Tasks />} />
           <Route path="schedule" element={<Schedule />} />
+          <Route path="help" element={<Help />} />
           <Route
             path="settings"
             element={<Navigate to="/student/profile" replace />}
