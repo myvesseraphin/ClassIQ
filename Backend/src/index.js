@@ -17,9 +17,27 @@ dotenv.config();
 const app = express();
 app.set("trust proxy", 1);
 
+const stripWrappingQuotes = (value) =>
+  String(value || "")
+    .trim()
+    .replace(/^['"]|['"]$/g, "");
+
+const normalizeOriginValue = (value) => {
+  const raw = stripWrappingQuotes(value);
+  if (!raw) return "";
+  if (raw === "*") return "*";
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return raw.replace(/\/+$/, "");
+  }
+};
+
 const isProduction = process.env.NODE_ENV === "production";
 const allowedOrigins = process.env.CORS_ORIGIN
-  ? process.env.CORS_ORIGIN.split(",").map((origin) => origin.trim())
+  ? process.env.CORS_ORIGIN.split(",")
+      .map((origin) => normalizeOriginValue(origin))
+      .filter(Boolean)
   : [];
 
 if (isProduction && allowedOrigins.length === 0) {
@@ -37,7 +55,9 @@ const corsOptions = {
     if (!origin) return callback(null, true);
     if (!isProduction) return callback(null, true);
     if (allowedOrigins.length === 0) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
+    if (allowedOrigins.includes("*")) return callback(null, true);
+    const normalizedRequestOrigin = normalizeOriginValue(origin);
+    if (allowedOrigins.includes(normalizedRequestOrigin)) return callback(null, true);
     return callback(new Error("Not allowed by CORS"));
   },
   credentials: true,

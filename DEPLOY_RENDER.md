@@ -8,6 +8,7 @@ Your backend is already deployed on Render:
 
 - Service name: `ClassIQ`
 - URL: `https://classiq-r6vf.onrender.com`
+- Frontend URL: `https://classiqrwanda.onrender.com`
 
 If you keep using this existing backend, skip backend creation and go to Step 2.
 
@@ -36,11 +37,13 @@ In Render dashboard:
 | Key | Value to insert |
 |---|---|
 | `DATABASE_URL` | your Postgres URL (Supabase or Render Postgres) |
-| `CORS_ORIGIN` | your frontend URL (for example `https://classiq-web.onrender.com`) |
+| `CORS_ORIGIN` | `https://classiqrwanda.onrender.com` |
 | `JWT_SECRET` | a long random secret (or click Generate in Render) |
 | `JWT_EXPIRES_IN` | `7d` |
 | `RESET_TOKEN_TTL_MINUTES` | `15` |
 | `RETURN_RESET_TOKEN` | `false` |
+| `COOKIE_SAME_SITE` | `none` |
+| `COOKIE_SECURE` | `true` |
 
 Optional backend env vars (only if you use those features):
 
@@ -71,7 +74,7 @@ In Render dashboard:
 
 | Field | Value to insert |
 |---|---|
-| Name | `classiq-web` |
+| Name | `classiqrwanda` (or your current frontend service name) |
 | Branch | `main` (or your deploy branch) |
 | Root Directory | `.` |
 | Build Command | `npm ci && npm run build` |
@@ -91,12 +94,18 @@ In Render dashboard:
 
 6. Click `Create Static Site`.
 
-After deploy, copy your frontend URL, for example:
-`https://classiq-web.onrender.com`
+Current frontend URL:
+`https://classiqrwanda.onrender.com`
+
+Important for `CORS_ORIGIN`:
+
+- Use frontend origin only, not API URL.
+- Correct: `https://your-frontend.onrender.com`
+- Wrong: `https://your-frontend.onrender.com/` or `https://your-frontend.onrender.com/api`
 
 ## Step 3: Final CORS Check
 
-If your frontend URL is not exactly `https://classiq-web.onrender.com`:
+If your frontend URL changes from `https://classiqrwanda.onrender.com`:
 
 1. Open the `ClassIQ` service in Render.
 2. Go to `Environment`.

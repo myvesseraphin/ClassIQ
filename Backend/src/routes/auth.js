@@ -9,6 +9,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { requireCsrf } from "../middleware/csrf.js";
 import { authLimiter, resetLimiter } from "../middleware/rateLimit.js";
 import { logAudit } from "../utils/audit.js";
+import { getAppCookieOptions } from "../utils/cookies.js";
 
 dotenv.config();
 
@@ -70,15 +71,7 @@ const validatePassword = (password) => {
   return true;
 };
 
-const getCookieOptions = () => {
-  const isProduction = process.env.NODE_ENV === "production";
-  return {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: isProduction,
-    path: "/",
-  };
-};
+const getCookieOptions = () => getAppCookieOptions({ httpOnly: true });
 
 const sendVerifyEmail = async (email, code, firstName) => {
   if (!mailer) return false;

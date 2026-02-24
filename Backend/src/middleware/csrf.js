@@ -1,16 +1,9 @@
 import crypto from "crypto";
+import { getAppCookieOptions } from "../utils/cookies.js";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-const getCookieOptions = () => {
-  const isProduction = process.env.NODE_ENV === "production";
-  return {
-    httpOnly: false,
-    sameSite: "lax",
-    secure: isProduction,
-    path: "/",
-  };
-};
+const getCookieOptions = () => getAppCookieOptions({ httpOnly: false });
 
 export const ensureCsrfCookie = (req, res, next) => {
   if (!req.cookies?.csrf_token) {
