@@ -16,7 +16,7 @@ const SupportedPrograms = () => {
         <div className="text-center mb-12">
           <h2 className="text-lg md:text-xl font-bold text-slate-900 tracking-tight">
             We support various{" "}
-            <span className="text-[#1877F2]">education programs</span>
+            <span className="text-[#2D70FD]">education programs</span>
           </h2>
         </div>
 
@@ -37,3 +37,4 @@ const SupportedPrograms = () => {
 };
 
 export default SupportedPrograms;
+

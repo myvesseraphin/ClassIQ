@@ -13,32 +13,32 @@ const Features = () => {
     {
       title: "Performance Analysis",
       desc: "Transform raw school data into deep-dive diagnostics and actionable intelligence.",
-      icon: <BarChart2 className="text-[#1877F2]" />,
+      icon: <BarChart2 className="text-[#2D70FD]" />,
     },
     {
       title: "Weakness Detection",
       desc: "AI-driven identification of student-specific weak topics to bridge learning gaps immediately.",
-      icon: <Search className="text-[#1877F2]" />,
+      icon: <Search className="text-[#2D70FD]" />,
     },
     {
       title: "Productivity Tracking",
       desc: "Monitor real-time curriculum coverage and teacher progress against school goals.",
-      icon: <LineChart className="text-[#1877F2]" />,
+      icon: <LineChart className="text-[#2D70FD]" />,
     },
     {
       title: "Course Scheduling",
       desc: "Systematically create and manage subject timetables for all classes with ease.",
-      icon: <Calendar className="text-[#1877F2]" />,
+      icon: <Calendar className="text-[#2D70FD]" />,
     },
     {
       title: "Grade Reports",
       desc: "Automated academic reports generated instantly from teacher data inputs.",
-      icon: <FileCheck className="text-[#1877F2]" />,
+      icon: <FileCheck className="text-[#2D70FD]" />,
     },
     {
       title: "Attendance Tracking",
       desc: "Digital attendance marking with comprehensive system-wide overview reports.",
-      icon: <UserCheck className="text-[#1877F2]" />,
+      icon: <UserCheck className="text-[#2D70FD]" />,
     },
   ];
 
@@ -46,13 +46,13 @@ const Features = () => {
     <section id="features" className="py-24 px-6 bg-white overflow-hidden">
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-20 animate-fade-in">
-          <p className="text-[#1877F2] font-bold uppercase tracking-widest text-sm mb-4">
+          <p className="text-[#2D70FD] font-bold uppercase tracking-widest text-sm mb-4">
             Features
           </p>
           <h2 className="text-4xl md:text-5xl font-black text-slate-900 mb-6">
             Our Features & Services
           </h2>
-          <div className="w-16 h-1 bg-[#1877F2] mx-auto rounded-full"></div>
+          <div className="w-16 h-1 bg-[#2D70FD] mx-auto rounded-full"></div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
@@ -70,7 +70,7 @@ const Features = () => {
               </div>
 
               <div className="text-center">
-                <h3 className="text-2xl font-bold text-slate-900 mb-4 transition-colors duration-300 group-hover:text-[#1877F2]">
+                <h3 className="text-2xl font-bold text-slate-900 mb-4 transition-colors duration-300 group-hover:text-[#2D70FD]">
                   {f.title}
                 </h3>
                 <p className="text-slate-500 font-medium leading-relaxed text-base transition-colors duration-300 group-hover:text-slate-600">
@@ -113,3 +113,4 @@ const Features = () => {
 };
 
 export default Features;
+

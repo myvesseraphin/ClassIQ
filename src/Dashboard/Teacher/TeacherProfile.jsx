@@ -1,0 +1,433 @@
+import React, { useState, useRef, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  User,
+  Shield,
+  Settings,
+  Camera,
+  LogOut,
+  Key,
+  Lock,
+  Bell,
+  RefreshCw,
+  CheckCircle2,
+  AlertCircle,
+} from "lucide-react";
+import { toast } from "react-toastify";
+import api, { resolveMediaUrl } from "../../api/client";
+import TeacherPageSkeleton from "../../Component/TeacherPageSkeleton";
+
+const TeacherProfile = () => {
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState("Account");
+  const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const fileInputRef = useRef(null);
+
+  const [toastState, setToastState] = useState({
+    show: false,
+    message: "",
+    type: "success",
+  });
+
+  const [currentProfileImage, setCurrentProfileImage] = useState("");
+
+  const [formData, setFormData] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    staffNumber: "",
+    nid: "",
+    school: "",
+    currentPassword: "",
+    newPassword: "",
+    notifications: true,
+    autoSync: true,
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadProfile = async () => {
+      try {
+        const { data } = await api.get("/teacher/profile");
+        if (!isMounted) return;
+        setFormData((prev) => ({
+          ...prev,
+          firstName: data.user?.firstName || "",
+          lastName: data.user?.lastName || "",
+          email: data.user?.email || "",
+          phone: data.user?.phone || "",
+          staffNumber: data.user?.staffNumber || "",
+          nid: data.user?.nid || "",
+          school: data.user?.schoolName || data.user?.school || "",
+          notifications: data.settings?.notifications ?? prev.notifications,
+          autoSync: data.settings?.autoSync ?? prev.autoSync,
+        }));
+        if (data.user?.avatarUrl) {
+          setCurrentProfileImage(resolveMediaUrl(data.user.avatarUrl));
+        } else {
+          setCurrentProfileImage("");
+        }
+      } catch (err) {
+        console.error("Failed to load profile", err);
+        toast.error("Failed to load profile.");
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    };
+    loadProfile();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const showNotification = (message, type = "success") => {
+    setToastState({ show: true, message, type });
+    setTimeout(
+      () => setToastState({ show: false, message: "", type: "success" }),
+      3000,
+    );
+  };
+
+  const handleImageClick = () => fileInputRef.current?.click();
+
+  const handleImageChange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select a valid image file.");
+      return;
+    }
+    try {
+      const uploadData = new FormData();
+      uploadData.append("file", file);
+      const { data: profile } = await api.post(
+        "/teacher/profile/avatar",
+        uploadData,
+      );
+      const nextUrl = resolveMediaUrl(profile?.user?.avatarUrl);
+      if (!nextUrl) {
+        throw new Error("Upload failed.");
+      }
+      setCurrentProfileImage(nextUrl);
+      window.dispatchEvent(
+        new CustomEvent("classiq:teacher-profile-updated", {
+          detail: {
+            avatarUrl: nextUrl,
+            name: `${formData.firstName} ${formData.lastName}`.trim(),
+            school: formData.school,
+          },
+        }),
+      );
+      showNotification("Profile image updated!");
+    } catch (err) {
+      console.error("Failed to update profile image", err);
+      toast.error("Failed to update profile image.");
+    } finally {
+      event.target.value = "";
+    }
+  };
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const toggleSetting = async (field) => {
+    const nextValue = !formData[field];
+    setFormData((prev) => ({ ...prev, [field]: nextValue }));
+    try {
+      await api.patch("/teacher/profile/settings", {
+        notifications: field === "notifications" ? nextValue : undefined,
+        autoSync: field === "autoSync" ? nextValue : undefined,
+      });
+    } catch (err) {
+      console.error("Failed to update settings", err);
+      toast.error("Failed to update settings.");
+      setFormData((prev) => ({ ...prev, [field]: !nextValue }));
+    }
+  };
+
+  const handleSave = () => {
+    setIsSaving(true);
+    setTimeout(() => {
+      setIsSaving(false);
+      showNotification("Profile changes saved locally!");
+      setFormData((prev) => ({
+        ...prev,
+        currentPassword: "",
+        newPassword: "",
+      }));
+    }, 1200);
+  };
+
+  const handleLogout = () => {
+    api.post("/auth/logout").catch(() => {});
+    localStorage.clear();
+    navigate("/login");
+  };
+
+  if (isLoading) {
+    return <TeacherPageSkeleton variant="profile" />;
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 font-sans selection:bg-blue-100 selection:text-blue-600 pb-40 relative">
+      {toastState.show && (
+        <div className="fixed top-10 left-1/2 -translate-x-1/2 z-[100] animate-in fade-in slide-in-from-top-4 duration-300">
+          <div
+            className={`flex items-center gap-3 px-6 py-4 rounded-[1.5rem] shadow-2xl border bg-white ${
+              toastState.type === "success"
+                ? "border-emerald-100 text-emerald-600"
+                : "border-rose-100 text-rose-600"
+            }`}
+          >
+            {toastState.type === "success" ? (
+              <CheckCircle2 size={18} />
+            ) : (
+              <AlertCircle size={18} />
+            )}
+            <span className="text-[11px] font-black uppercase tracking-widest">
+              {toastState.message}
+            </span>
+          </div>
+        </div>
+      )}
+
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleImageChange}
+        className="hidden"
+        accept="image/*"
+      />
+
+      <header className="max-w-4xl mx-auto pt-10 px-6 flex items-center justify-between">
+        <button
+          onClick={handleLogout}
+          className="group flex items-center gap-2 px-6 py-3 bg-white border border-slate-100 text-slate-400 hover:text-rose-500 hover:border-rose-100 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-sm active:scale-95"
+        >
+          <LogOut
+            size={16}
+            className="group-hover:-translate-x-1 transition-transform"
+          />
+          Log Out
+        </button>
+      </header>
+
+      <main className="max-w-4xl mx-auto mt-12 px-6">
+        <nav className="flex items-center justify-center gap-1.5 mb-12 bg-white/50 backdrop-blur-md p-1.5 rounded-[2.5rem] border border-slate-100 w-fit mx-auto shadow-sm">
+          {["Account", "Settings"].map((name) => (
+            <button
+              key={name}
+              onClick={() => setActiveTab(name)}
+              className={`flex items-center gap-3 px-10 py-4 rounded-[2rem] text-[11px] font-black uppercase tracking-widest transition-all ${
+                activeTab === name
+                  ? "bg-[#2D70FD] text-white shadow-xl shadow-blue-100 scale-105"
+                  : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              {name === "Account" ? <User size={16} /> : <Settings size={16} />}
+              <span>{name}</span>
+            </button>
+          ))}
+        </nav>
+
+        <div className="relative">
+          {activeTab === "Account" ? (
+            <div className="space-y-6 animate-in fade-in zoom-in-95 duration-500">
+              <div className="bg-white rounded-[2.5rem] p-10 shadow-sm border border-blue-50/50">
+                <div className="flex flex-col items-center text-center space-y-6">
+                  <div
+                    className="relative group cursor-pointer"
+                    onClick={handleImageClick}
+                  >
+                    <div className="w-36 h-36 rounded-full bg-gradient-to-br from-blue-100 to-blue-200 p-1 transition-transform group-hover:scale-105">
+                      <div className="w-full h-full rounded-full bg-white flex items-center justify-center overflow-hidden border-4 border-white">
+                        {currentProfileImage ? (
+                          <img
+                            src={currentProfileImage}
+                            alt="Profile"
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <User size={60} className="text-blue-100" />
+                        )}
+                      </div>
+                    </div>
+                    <div className="absolute bottom-1 right-1 p-2.5 bg-[#2D70FD] text-white rounded-full border-4 border-white shadow-lg">
+                      <Camera size={16} />
+                    </div>
+                  </div>
+                  <div>
+                    <h2 className="text-3xl font-extrabold text-slate-800">
+                      {formData.firstName} {formData.lastName}
+                    </h2>
+                    <div className="flex items-center justify-center gap-2 mt-2">
+                      <span className="px-3 py-1 bg-blue-50 text-blue-600 text-[9px] font-black uppercase tracking-tighter rounded-full border border-blue-100">
+                        {formData.staffNumber || "Teacher"}
+                      </span>
+                      <span className="px-3 py-1 bg-slate-50 text-slate-500 text-[9px] font-black uppercase tracking-tighter rounded-full border border-slate-100">
+                        {formData.school || "School"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {[
+                  {
+                    label: "Names",
+                    value: `${formData.firstName} ${formData.lastName}`.trim(),
+                  },
+                  { label: "Phone", value: formData.phone },
+                  { label: "Staff Number", value: formData.staffNumber },
+                  { label: "Email", value: formData.email },
+                  { label: "NID", value: formData.nid },
+                  { label: "School", value: formData.school },
+                ].map((field, i) => (
+                  <div
+                    key={i}
+                    className="bg-slate-50/30 rounded-[2rem] p-6 border border-slate-100 shadow-sm opacity-80 cursor-not-allowed"
+                  >
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">
+                      {field.label}
+                    </label>
+                    <div className="font-bold text-slate-500 text-lg">
+                      {field.value || "Not set"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div
+                  className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm flex items-center justify-between group cursor-pointer"
+                  onClick={() => toggleSetting("notifications")}
+                >
+                  <div className="flex items-center gap-4">
+                    <div
+                      className={`p-3 rounded-2xl transition-colors ${
+                        formData.notifications
+                          ? "bg-blue-50 text-blue-600"
+                          : "bg-slate-50 text-slate-400"
+                      }`}
+                    >
+                      <Bell size={20} />
+                    </div>
+                    <div>
+                      <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                        Push Alerts
+                      </h4>
+                      <p className="font-bold text-slate-700">
+                        {formData.notifications ? "Enabled" : "Disabled"}
+                      </p>
+                    </div>
+                  </div>
+                  <div
+                    className={`w-12 h-6 rounded-full transition-all relative ${
+                      formData.notifications ? "bg-[#2D70FD]" : "bg-slate-200"
+                    }`}
+                  >
+                    <div
+                      className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${
+                        formData.notifications ? "left-7" : "left-1"
+                      }`}
+                    />
+                  </div>
+                </div>
+
+                <div
+                  className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm flex items-center justify-between group cursor-pointer"
+                  onClick={() => toggleSetting("autoSync")}
+                >
+                  <div className="flex items-center gap-4">
+                    <div
+                      className={`p-3 rounded-2xl transition-colors ${
+                        formData.autoSync
+                          ? "bg-blue-50 text-blue-600"
+                          : "bg-slate-50 text-slate-400"
+                      }`}
+                    >
+                      <RefreshCw size={20} />
+                    </div>
+                    <div>
+                      <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                        Cloud Sync
+                      </h4>
+                      <p className="font-bold text-slate-700">
+                        {formData.autoSync ? "Always On" : "Manual"}
+                      </p>
+                    </div>
+                  </div>
+                  <div
+                    className={`w-12 h-6 rounded-full transition-all relative ${
+                      formData.autoSync ? "bg-[#2D70FD]" : "bg-slate-200"
+                    }`}
+                  >
+                    <div
+                      className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${
+                        formData.autoSync ? "left-7" : "left-1"
+                      }`}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-[2.5rem] p-8 border border-slate-100 shadow-sm space-y-8">
+                <div className="flex items-center gap-3 border-b border-slate-50 pb-4">
+                  <Lock size={20} className="text-blue-600" />
+                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">
+                    Security & Credentials
+                  </h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                      Current Password
+                    </label>
+                    <div className="flex items-center bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                      <Key size={16} className="text-slate-300 mr-3" />
+                      <input
+                        name="currentPassword"
+                        type="password"
+                        placeholder="••••••••"
+                        value={formData.currentPassword}
+                        onChange={handleInputChange}
+                        className="w-full bg-transparent outline-none font-bold text-slate-700"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                      New Password
+                    </label>
+                    <div className="flex items-center bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                      <Shield size={16} className="text-slate-300 mr-3" />
+                      <input
+                        name="newPassword"
+                        type="password"
+                        placeholder="New Password"
+                        value={formData.newPassword}
+                        onChange={handleInputChange}
+                        className="w-full bg-transparent outline-none font-bold text-slate-700"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+};
+
+export default TeacherProfile;
+
+

@@ -26,6 +26,8 @@ const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
 const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
 const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER;
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const smtpEnabled = SMTP_HOST && SMTP_USER && SMTP_PASS;
 const mailer = smtpEnabled
@@ -47,11 +49,15 @@ const buildUserResponse = (row) => ({
   firstName: row.firstName || null,
   lastName: row.lastName || null,
   emailVerified: row.emailVerified ?? null,
+  avatarUrl: row.avatarUrl || null,
+  school: row.school || null,
 });
 
 const isValidEmail = (email) =>
   typeof email === "string" &&
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+
+const isUuid = (value) => UUID_REGEX.test(value || "");
 
 const validatePassword = (password) => {
   if (typeof password !== "string") return false;
@@ -199,15 +205,16 @@ router.post("/login", authLimiter, async (req, res, next) => {
       return res.status(400).json({ error: "Valid email and password required." });
     }
 
-    const { rows } = await query(
-      `SELECT u.id, u.email, u.role, u.password_hash AS "passwordHash",
-              u.email_verified AS "emailVerified",
-              p.first_name AS "firstName", p.last_name AS "lastName"
-         FROM users u
-         LEFT JOIN user_profiles p ON p.user_id = u.id
-        WHERE u.email = $1`,
-      [email],
-    );
+      const { rows } = await query(
+        `SELECT u.id, u.email, u.role, u.password_hash AS "passwordHash",
+                u.email_verified AS "emailVerified",
+                p.first_name AS "firstName", p.last_name AS "lastName",
+                p.avatar_url AS "avatarUrl", p.school_name AS "school"
+           FROM users u
+           LEFT JOIN user_profiles p ON p.user_id = u.id
+          WHERE u.email = $1`,
+        [email],
+      );
 
     const user = rows[0];
     if (!user) {
@@ -305,15 +312,17 @@ router.post("/register", authLimiter, async (req, res, next) => {
 
 router.get("/me", requireAuth, async (req, res, next) => {
   try {
-    const { rows } = await query(
-      `SELECT u.id, u.email, u.role,
-              u.email_verified AS "emailVerified",
-              p.first_name AS "firstName", p.last_name AS "lastName"
-         FROM users u
-         LEFT JOIN user_profiles p ON p.user_id = u.id
-        WHERE u.id = $1`,
-      [req.user.id],
-    );
+      const { rows } = await query(
+        `SELECT u.id, u.email, u.role,
+                u.email_verified AS "emailVerified",
+                p.first_name AS "firstName", p.last_name AS "lastName",
+                p.avatar_url AS "avatarUrl",
+                p.school_name AS "school"
+           FROM users u
+           LEFT JOIN user_profiles p ON p.user_id = u.id
+          WHERE u.id = $1`,
+        [req.user.id],
+      );
 
     if (!rows[0]) {
       return res.status(404).json({ error: "User not found." });
@@ -547,12 +556,72 @@ router.post("/verify-email", resetLimiter, async (req, res, next) => {
   }
 });
 
+router.get("/schools", async (req, res, next) => {
+  try {
+    const queryText = String(req.query.q || "").trim();
+    const limit = Math.min(Math.max(Number(req.query.limit || 8), 1), 20);
+
+    if (!queryText) {
+      const { rows } = await query(
+        `SELECT id, name, location
+           FROM schools
+          ORDER BY name
+          LIMIT $1`,
+        [limit],
+      );
+      return res.json({ schools: rows });
+    }
+
+    const likeQuery = `%${queryText}%`;
+    const { rows } = await query(
+      `SELECT id, name, location
+         FROM schools
+        WHERE lower(name) LIKE lower($1)
+        ORDER BY name
+        LIMIT $2`,
+      [likeQuery, limit],
+    );
+
+    return res.json({ schools: rows });
+  } catch (error) {
+    return next(error);
+  }
+});
 router.post("/request-access", async (req, res, next) => {
   try {
-    const { fullName, email, school, gradeLevel } = req.body || {};
-    const resolvedSchool = school || gradeLevel;
+    const { fullName, email, schoolId, schoolName, school, gradeLevel } =
+      req.body || {};
+    const rawSchool =
+      typeof schoolName === "string"
+        ? schoolName.trim()
+        : typeof school === "string"
+          ? school.trim()
+          : typeof gradeLevel === "string"
+            ? gradeLevel.trim()
+            : "";
+    let resolvedSchoolId = null;
+    let resolvedSchoolName = rawSchool;
 
-    if (!fullName || !isValidEmail(email) || !resolvedSchool) {
+    if (schoolId) {
+      if (!isUuid(schoolId)) {
+        return res.status(400).json({ error: "Invalid school id." });
+      }
+      const { rows } = await query(
+        `SELECT id, name
+           FROM schools
+          WHERE id = $1`,
+        [schoolId],
+      );
+
+      if (!rows[0]) {
+        return res.status(400).json({ error: "School not found." });
+      }
+
+      resolvedSchoolId = rows[0].id;
+      resolvedSchoolName = rows[0].name;
+    }
+
+    if (!fullName || !isValidEmail(email) || !resolvedSchoolName) {
       return res
         .status(400)
         .json({ error: "Full name, email, and school are required." });
@@ -562,11 +631,12 @@ router.post("/request-access", async (req, res, next) => {
       `INSERT INTO access_requests (
           full_name,
           email,
-          school
+          school,
+          school_id
         )
-       VALUES ($1, $2, $3)
+       VALUES ($1, $2, $3, $4)
        RETURNING id, status, created_at AS "createdAt"`,
-      [fullName, email, resolvedSchool],
+      [fullName, email, resolvedSchoolName, resolvedSchoolId],
     );
 
     return res.status(201).json({ request: rows[0] });
@@ -582,3 +652,6 @@ router.post("/logout", requireAuth, requireCsrf, (req, res) => {
 });
 
 export default router;
+
+
+

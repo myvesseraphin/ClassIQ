@@ -15,7 +15,6 @@ export const logAudit = async (req, action, context = {}) => {
       [userId, action, JSON.stringify(context || {}), ip, userAgent],
     );
   } catch (error) {
-    // Audit logging must never break the request
     console.error("Audit log failed", error);
   }
 };

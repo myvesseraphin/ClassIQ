@@ -55,9 +55,9 @@ const Team = () => {
       <div className="max-w-7xl mx-auto px-6 relative z-10">
         <div className="text-center mb-20">
           <h2 className="text-4xl md:text-5xl font-black tracking-tight text-slate-900 mb-4">
-            Meet the <span className="text-[#1877F2]">Team</span>
+            Meet the <span className="text-[#2D70FD]">Team</span>
           </h2>
-          <div className="w-12 h-1.5 bg-[#1877F2] mx-auto rounded-full mb-6"></div>
+          <div className="w-12 h-1.5 bg-[#2D70FD] mx-auto rounded-full mb-6"></div>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-8">
           {team.map((member, index) => (
@@ -79,7 +79,7 @@ const Team = () => {
                 <div className="flex items-center justify-center gap-3 transition-all duration-300">
                   <a
                     href={member.linkedin}
-                    className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-50 text-slate-400 hover:bg-[#1877F2] hover:text-white transition-all"
+                    className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-50 text-slate-400 hover:bg-[#2D70FD] hover:text-white transition-all"
                   >
                     <Linkedin size={20} />
                   </a>
@@ -106,3 +106,4 @@ const Team = () => {
 };
 
 export default Team;
+

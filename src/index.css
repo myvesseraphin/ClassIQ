@@ -1,6 +1,69 @@
 @theme {
+  /* Main palette aligned to the provided screenshot */
+  --color-blue-50: #edf3ff;
+  --color-blue-100: #dce8ff;
+  --color-blue-200: #bdd3ff;
+  --color-blue-300: #94b6ff;
+  --color-blue-400: #6e98ff;
+  --color-blue-500: #3f7bfd;
+  --color-blue-600: #2d70fd;
+  --color-blue-700: #255edc;
+  --color-blue-800: #1e4cb4;
+  --color-blue-900: #183c8f;
+  --color-blue-950: #11275c;
+
+  --color-slate-50: #f7f9fc;
+  --color-slate-100: #edf1f7;
+  --color-slate-200: #dde5ef;
+  --color-slate-300: #c7d2e1;
+  --color-slate-400: #96a6bd;
+  --color-slate-500: #6c8099;
+  --color-slate-600: #4f6280;
+  --color-slate-700: #384a66;
+  --color-slate-800: #223451;
+  --color-slate-900: #0f2144;
+  --color-slate-950: #081634;
+
+  /* Map purple tokens to same visual family for consistency */
+  --color-purple-50: #edf3ff;
+  --color-purple-100: #dce8ff;
+  --color-purple-200: #bdd3ff;
+  --color-purple-300: #94b6ff;
+  --color-purple-400: #6e98ff;
+  --color-purple-500: #3f7bfd;
+  --color-purple-600: #2d70fd;
+  --color-purple-700: #255edc;
+  --color-purple-800: #1e4cb4;
+  --color-purple-900: #183c8f;
 }
+
 @import "tailwindcss";
+
+:root {
+  --ciq-bg: #f7f9fc;
+  --ciq-surface: #ffffff;
+  --ciq-text: #0f2144;
+  --ciq-muted: #6c8099;
+  --ciq-border: #dde5ef;
+  --ciq-primary: #2d70fd;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  background-color: var(--ciq-bg);
+  color: var(--ciq-text);
+}
+
+::selection {
+  background: #dce8ff;
+  color: #0f2144;
+}
+
 @keyframes float {
   0% {
     transform: translateY(0px) translateX(0px);
@@ -15,10 +78,11 @@
     opacity: 0.6;
   }
 }
+
 .particle {
   position: absolute;
-  background-color: #1877F2;
+  background-color: var(--ciq-primary);
   border-radius: 50%;
   filter: blur(1px);
-  animation: float 5s ease-in-out infinite; 
+  animation: float 5s ease-in-out infinite;
 }

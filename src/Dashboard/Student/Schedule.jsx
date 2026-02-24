@@ -249,12 +249,12 @@ const Schedule = () => {
               <div className="space-y-4">
                 <div>
                   <label className="text-xs font-black text-slate-700 uppercase tracking-wider block mb-2">
-                    Day (0-4)
+                    Day of Week
                   </label>
                   <input
                     type="number"
-                    min="0"
-                    max="4"
+                    min="1"
+                    max="5"
                     value={classData.day}
                     onChange={(e) =>
                       setClassData({
@@ -268,7 +268,7 @@ const Schedule = () => {
 
                 <div>
                   <label className="text-xs font-black text-slate-700 uppercase tracking-wider block mb-2">
-                    Class Title
+                    Class
                   </label>
                   <input
                     type="text"
@@ -276,7 +276,6 @@ const Schedule = () => {
                     onChange={(e) =>
                       setClassData({ ...classData, title: e.target.value })
                     }
-                    placeholder="e.g., Mathematics"
                     className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
                   />
                 </div>
@@ -311,7 +310,7 @@ const Schedule = () => {
 
                 <div>
                   <label className="text-xs font-black text-slate-700 uppercase tracking-wider block mb-2">
-                    Room/Location
+                    Room
                   </label>
                   <input
                     type="text"
@@ -319,7 +318,6 @@ const Schedule = () => {
                     onChange={(e) =>
                       setClassData({ ...classData, room: e.target.value })
                     }
-                    placeholder="e.g., Room 101"
                     className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
                   />
                 </div>
@@ -334,7 +332,6 @@ const Schedule = () => {
                     onChange={(e) =>
                       setClassData({ ...classData, instructor: e.target.value })
                     }
-                    placeholder="e.g., Dr. John Smith"
                     className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
                   />
                 </div>

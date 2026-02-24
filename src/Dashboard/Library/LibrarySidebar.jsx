@@ -1,8 +1,8 @@
 import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import logo from "../../assets/logo.png";
-import { LayoutGrid, Library, LogOut, ArrowLeft } from "lucide-react";
+import { LayoutGrid, Library, LogOut } from "lucide-react";
 import api from "../../api/client";
+import logo from "../../assets/logo.png";
 
 const LibrarySidebar = () => {
   const navigate = useNavigate();
@@ -32,12 +32,12 @@ const LibrarySidebar = () => {
         <div className="w-15 h-15 flex items-center justify-center overflow-hidden">
           <img
             src={logo}
-            alt="ClassIQ Logo"
+            alt="ClassIQ logo"
             className="w-full h-full object-contain"
           />
         </div>
         <span className="text-2xl font-black text-slate-900 tracking-tight">
-          Library
+          ClassIQ
         </span>
       </div>
       <nav className="flex-1 px-4 mt-8 space-y-2">

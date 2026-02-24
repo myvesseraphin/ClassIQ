@@ -6,11 +6,11 @@ import {
   X,
   Calendar,
   ChevronLeft,
-  Loader2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import api from "../../api/client";
+import StudentPageSkeleton from "../../Component/StudentPageSkeleton";
 
 const Tasks = () => {
   const navigate = useNavigate();
@@ -105,6 +105,10 @@ const Tasks = () => {
     }
   };
 
+  if (isLoading) {
+    return <StudentPageSkeleton variant="tasks" />;
+  }
+
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
       <div className="flex-1 flex flex-col min-w-0 relative">
@@ -159,14 +163,7 @@ const Tasks = () => {
             </div>
 
             <div className="space-y-4">
-              {isLoading ? (
-                <div className="text-center py-20 bg-white rounded-[2rem] border border-slate-100">
-                  <Loader2
-                    className="mx-auto mb-4 text-blue-600 animate-spin"
-                    size={36}
-                  />
-                </div>
-              ) : filteredTasks.length === 0 ? (
+              {filteredTasks.length === 0 ? (
                 <div className="text-center py-20 bg-white rounded-[2rem] border border-slate-100">
                   <CheckCircle2
                     className="mx-auto mb-4 text-slate-300"

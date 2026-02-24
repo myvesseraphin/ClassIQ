@@ -1,9 +1,10 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { BookOpen, UploadCloud, Loader2 } from "lucide-react";
+import { BookOpen, UploadCloud } from "lucide-react";
 import { toast } from "react-toastify";
 import api from "../../api/client";
 import EmptyState from "../../Component/EmptyState";
+import StudentPageSkeleton from "../../Component/StudentPageSkeleton";
 
 const LibraryDashboard = () => {
   const [stats, setStats] = React.useState({
@@ -36,11 +37,7 @@ const LibraryDashboard = () => {
   }, []);
 
   if (isLoading) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center bg-[#F8FAFC]">
-        <Loader2 className="animate-spin text-blue-600" size={40} />
-      </div>
-    );
+    return <StudentPageSkeleton variant="libraryDashboard" />;
   }
 
   return (

@@ -19,7 +19,6 @@ const ensureCsrfCookie = async () => {
   try {
     await axios.get(`${apiBaseUrl}/health`, { withCredentials: true });
   } catch (err) {
-    // Ignore CSRF warm-up failures; request may still proceed.
   }
 };
 

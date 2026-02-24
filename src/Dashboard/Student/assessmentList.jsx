@@ -9,17 +9,18 @@ import {
   Trophy,
   CheckCircle2,
   BrainCircuit,
-  Loader2,
   X,
 } from "lucide-react";
 import { toast } from "react-toastify";
 import api from "../../api/client";
 import EmptyState from "../../Component/EmptyState";
+import StudentPageSkeleton from "../../Component/StudentPageSkeleton";
 
 const AssessmentList = () => {
   const navigate = useNavigate();
   const [viewMode, setViewMode] = useState("list");
   const [selectedTask, setSelectedTask] = useState(null);
+  const [downloadingAssessmentId, setDownloadingAssessmentId] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [activeSubject, setActiveSubject] = useState("All");
   const [assessments, setAssessments] = useState([]);
@@ -64,6 +65,45 @@ const AssessmentList = () => {
     const num = Number(String(value).replace(/[^0-9.]/g, ""));
     return Number.isFinite(num) ? num : null;
   };
+  const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+  const resolveFilename = (headerValue, fallback = "assessment-report.pdf") => {
+    const value = String(headerValue || "");
+    const utf8Match = value.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utf8Match?.[1]) {
+      return decodeURIComponent(utf8Match[1]).replace(/["']/g, "");
+    }
+    const basicMatch = value.match(/filename="?([^"]+)"?/i);
+    return basicMatch?.[1] || fallback;
+  };
+
+  const handleDownloadAssessment = async (assessment) => {
+    if (!assessment?.id) return;
+    try {
+      setDownloadingAssessmentId(String(assessment.id));
+      const response = await api.get(
+        `/student/assessments/${assessment.id}/download`,
+        { responseType: "blob" },
+      );
+      const filename = resolveFilename(
+        response.headers?.["content-disposition"],
+        `${(assessment.title || "assessment").replace(/[^a-z0-9-_]+/gi, "_")}.pdf`,
+      );
+      const blob = new Blob([response.data], { type: "application/pdf" });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Failed to download assessment", err);
+      toast.error("Failed to download assessment report.");
+    } finally {
+      setDownloadingAssessmentId("");
+    }
+  };
 
   const completedAssessments = assessments.filter(
     (a) => a.status === "Completed" && parsePercent(a.grade) !== null,
@@ -82,22 +122,67 @@ const AssessmentList = () => {
   const predictedValues = assessments
     .map((a) => parsePercent(a.predicted))
     .filter((v) => v !== null);
-  const avgPrediction = predictedValues.length
-    ? Math.round(
-        predictedValues.reduce((sum, v) => sum + v, 0) /
+  const completedGrades = completedAssessments
+    .map((a) => parsePercent(a.grade))
+    .filter((v) => v !== null);
+  const predictionValue = (() => {
+    if (predictedValues.length > 0) {
+      const score = Math.round(
+        predictedValues.reduce((sum, value) => sum + value, 0) /
           predictedValues.length,
-      )
-    : 0;
+      );
+      return `${score}%`;
+    }
+
+    if (completedGrades.length > 1) {
+      const recent = completedGrades.slice(0, Math.min(5, completedGrades.length));
+      const weightedTotal = recent.reduce(
+        (sum, grade, index) => sum + grade * (recent.length - index),
+        0,
+      );
+      const weightSum = recent.reduce((sum, _, index) => sum + (recent.length - index), 0);
+      const weightedAvg = weightedTotal / weightSum;
+      const split = Math.max(1, Math.floor(recent.length / 2));
+      const latestAvg =
+        recent.slice(0, split).reduce((sum, grade) => sum + grade, 0) / split;
+      const olderSlice = recent.slice(split);
+      const olderAvg =
+        olderSlice.length > 0
+          ? olderSlice.reduce((sum, grade) => sum + grade, 0) / olderSlice.length
+          : latestAvg;
+      const trend = latestAvg - olderAvg;
+      const completionBoost =
+        completionRate >= 85 ? 2 : completionRate >= 65 ? 1 : 0;
+      const score = clamp(
+        Math.round(weightedAvg + trend * 0.45 + completionBoost),
+        0,
+        100,
+      );
+      return `${score}%`;
+    }
+
+    if (completedGrades.length === 1) {
+      const score = clamp(
+        Math.round(completedGrades[0] + (completionRate >= 70 ? 2 : 0)),
+        0,
+        100,
+      );
+      return `${score}%`;
+    }
+
+    if (assessments.length > 0) {
+      const score = clamp(Math.round(40 + completionRate * 0.4), 0, 100);
+      return `${score}%`;
+    }
+
+    return "--";
+  })();
 
   const noData = !isLoading && assessments.length === 0;
   const noResults = !noData && filtered.length === 0;
 
   if (isLoading) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center bg-[#F8FAFC]">
-        <Loader2 className="animate-spin text-blue-600" size={40} />
-      </div>
-    );
+    return <StudentPageSkeleton variant="assessment" />;
   }
 
   return (
@@ -139,8 +224,8 @@ const AssessmentList = () => {
               bg: "bg-emerald-50",
             },
             {
-              label: "Prediction",
-              value: `${avgPrediction}%`,
+              label: "AI Forecast",
+              value: predictionValue,
               icon: <BrainCircuit size={20} />,
               color: "text-purple-600",
               bg: "bg-purple-50",
@@ -275,7 +360,11 @@ const AssessmentList = () => {
                           Start
                         </button>
                       )}
-                      <button className="p-3 text-slate-300 hover:text-slate-500 transition-colors">
+                      <button
+                        onClick={() => handleDownloadAssessment(item)}
+                        disabled={downloadingAssessmentId === String(item.id)}
+                        className="p-3 text-slate-300 hover:text-slate-500 transition-colors disabled:opacity-40"
+                      >
                         <Download size={18} />
                       </button>
                     </td>

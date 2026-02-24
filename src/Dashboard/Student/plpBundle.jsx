@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   BookOpen,
   CheckCircle,
@@ -13,19 +14,13 @@ import {
   List,
   Brain,
   Loader2,
+  ExternalLink,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "react-toastify";
 import api from "../../api/client";
 import EmptyState from "../../Component/EmptyState";
-
-const FullScreenLoader = () => (
-  <div className="flex flex-col items-center justify-center h-screen w-full bg-slate-50">
-    <div className="relative flex items-center justify-center">
-      <Loader2 className="w-12 h-12 text-[#2D70FD] animate-spin" />
-      <div className="absolute inset-0 scale-150 blur-xl bg-blue-500/10 rounded-full animate-pulse"></div>
-    </div>
-  </div>
-);
+import StudentPageSkeleton from "../../Component/StudentPageSkeleton";
 
 const CircularProgress = ({
   progress,
@@ -77,6 +72,7 @@ const CircularProgress = ({
 };
 
 const PLPBundle = () => {
+  const navigate = useNavigate();
   const [view, setView] = useState("overview");
   const [isLoading, setIsLoading] = useState(true);
   const [viewMode, setViewMode] = useState("grid");
@@ -85,6 +81,13 @@ const PLPBundle = () => {
   const [selectedSubject, setSelectedSubject] = useState(null);
 
   const [subjects, setSubjects] = useState([]);
+  const [isResourcesOpen, setIsResourcesOpen] = useState(false);
+  const [isResourcesLoading, setIsResourcesLoading] = useState(false);
+  const [resourceTopic, setResourceTopic] = useState("");
+  const [linkedResources, setLinkedResources] = useState([]);
+  const [resourceLesson, setResourceLesson] = useState(null);
+  const [markingWeakAreaId, setMarkingWeakAreaId] = useState("");
+  const [exportingPlpId, setExportingPlpId] = useState("");
 
   useEffect(() => {
     let isMounted = true;
@@ -143,12 +146,116 @@ const PLPBundle = () => {
       setIsLoading(false);
     }
   };
-  if (isLoading) return <FullScreenLoader />;
+
+  const handleStartPractice = (subjectName, weakAreaTopic) => {
+    const subject = encodeURIComponent(subjectName || "");
+    const weakArea = encodeURIComponent(weakAreaTopic || "");
+    navigate(`/student/exercise?subject=${subject}&weakArea=${weakArea}`);
+  };
+
+  const handleViewWeakAreaResources = async (plpSubjectId, weakAreaTopic) => {
+    if (!plpSubjectId) return;
+    setResourceTopic(weakAreaTopic || "");
+    setIsResourcesOpen(true);
+    setIsResourcesLoading(true);
+    setLinkedResources([]);
+    setResourceLesson(null);
+    try {
+      const { data } = await api.get(`/student/plp/${plpSubjectId}/resources`, {
+        params: { topic: weakAreaTopic || "" },
+      });
+      setLinkedResources(Array.isArray(data?.resources) ? data.resources : []);
+      setResourceLesson(data?.lesson || null);
+    } catch (err) {
+      console.error("Failed to load linked resources", err);
+      toast.error("Failed to load linked resources.");
+    } finally {
+      setIsResourcesLoading(false);
+    }
+  };
+
+  const handleMarkWeakAreaImproved = async (weakArea) => {
+    if (!weakArea?.id) return;
+    setMarkingWeakAreaId(weakArea.id);
+    try {
+      const { data } = await api.patch(
+        `/student/plp/weak-areas/${weakArea.id}/mark-improved`,
+      );
+      const updatedWeakArea = data?.weakArea || null;
+      if (!updatedWeakArea) throw new Error("Invalid weak area response");
+      setSelectedSubject((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          weakAreas: Array.isArray(prev.weakAreas)
+            ? prev.weakAreas.map((item) =>
+                item.id === updatedWeakArea.id
+                  ? {
+                      ...item,
+                      level: updatedWeakArea.level,
+                      desc: updatedWeakArea.desc,
+                    }
+                  : item,
+              )
+            : prev.weakAreas,
+        };
+      });
+      toast.success("Marked as improved.");
+    } catch (err) {
+      console.error("Failed to mark weak area as improved", err);
+      toast.error("Failed to update weak area.");
+    } finally {
+      setMarkingWeakAreaId("");
+    }
+  };
+
+  const resolveFilename = (headerValue, fallback = "plp-export.pdf") => {
+    const value = String(headerValue || "");
+    const utf8Match = value.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utf8Match?.[1]) {
+      return decodeURIComponent(utf8Match[1]).replace(/["']/g, "");
+    }
+    const basicMatch = value.match(/filename="?([^"]+)"?/i);
+    return basicMatch?.[1] || fallback;
+  };
+
+  const handleExportPlp = async (subject) => {
+    const subjectId = String(subject?.id || "");
+    if (!subjectId) return;
+    try {
+      setExportingPlpId(subjectId);
+      const response = await api.get(`/student/plp/${subjectId}/export`, {
+        responseType: "blob",
+      });
+      const safeName = (subject?.name || "plp")
+        .replace(/[^a-z0-9-_]+/gi, "_")
+        .slice(0, 60);
+      const filename = resolveFilename(
+        response.headers?.["content-disposition"],
+        `${safeName || "plp"}_learning_plan.pdf`,
+      );
+      const blob = new Blob([response.data], { type: "application/pdf" });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Failed to export learning plan", err);
+      toast.error("Failed to export learning plan.");
+    } finally {
+      setExportingPlpId("");
+    }
+  };
+  if (isLoading) {
+    return <StudentPageSkeleton variant="plp" />;
+  }
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
-      <div className="flex-1 flex flex-col min-w-0 relative">
-        <main className="flex-1 overflow-y-auto p-8 lg:p-12">
-          <div className="max-w-7xl mx-auto space-y-10 pb-20">
+    <div className="w-full h-full animate-in fade-in duration-500 font-sans">
+      <div className="max-w-7xl mx-auto space-y-10 pb-20">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
               <div className="space-y-2">
                 <h1 className="text-4xl font-black text-slate-900 tracking-tight">
@@ -240,7 +347,11 @@ const PLPBundle = () => {
                             >
                               <BookOpen size={18} /> View PLP
                             </button>
-                            <button className="py-4 bg-[#2D70FD] text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:shadow-lg transition-all shadow-sm">
+                            <button
+                              onClick={() => handleExportPlp(sub)}
+                              disabled={exportingPlpId === String(sub.id)}
+                              className="py-4 bg-[#2D70FD] text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:shadow-lg transition-all shadow-sm disabled:opacity-60"
+                            >
                               <Download size={18} /> Export
                             </button>
                           </div>
@@ -248,8 +359,8 @@ const PLPBundle = () => {
                       ))}
                     </div>
                   ) : (
-                    <div className="bg-white border border-slate-200 rounded-[2rem] overflow-hidden shadow-sm">
-                      <table className="w-full text-left border-collapse">
+                    <div className="bg-white border border-slate-200 rounded-[2rem] overflow-x-auto shadow-sm">
+                      <table className="w-full min-w-[720px] text-left border-collapse">
                         <thead>
                           <tr className="bg-slate-50 border-b border-slate-200">
                             <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-slate-400">
@@ -288,7 +399,7 @@ const PLPBundle = () => {
                                 <span
                                   className={`text-[10px] font-black px-3 py-1 rounded-full border ${sub.progress < 50 ? "bg-red-50 text-red-500 border-red-100" : "bg-emerald-50 text-emerald-500 border-emerald-100"}`}
                                 >
-                                  {sub.status.toUpperCase()}
+                                  {String(sub.status || "Needs Support").toUpperCase()}
                                 </span>
                               </td>
                               <td className="px-8 py-6">
@@ -304,7 +415,11 @@ const PLPBundle = () => {
                                   >
                                     <BookOpen size={16} />
                                   </button>
-                                  <button className="p-2.5 bg-slate-100 text-slate-400 rounded-xl hover:bg-slate-200 transition-all">
+                                  <button
+                                    onClick={() => handleExportPlp(sub)}
+                                    disabled={exportingPlpId === String(sub.id)}
+                                    className="p-2.5 bg-slate-100 text-slate-400 rounded-xl hover:bg-slate-200 transition-all disabled:opacity-50"
+                                  >
                                     <Download size={16} />
                                   </button>
                                 </div>
@@ -323,19 +438,20 @@ const PLPBundle = () => {
               !selectedSubject ? (
                 <EmptyState />
               ) : (
-              <div className="grid lg:grid-cols-12 gap-10">
+              <div className="grid lg:grid-cols-12 gap-8">
                 <div className="lg:col-span-8 space-y-8">
-                  <div className="bg-white border-2 border-blue-50 rounded-[3rem] p-12 flex items-center justify-between shadow-xl shadow-blue-500/5">
+                  <div className="bg-white border-2 border-blue-50 rounded-[3rem] p-8 md:p-10 lg:p-12 flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between shadow-xl shadow-blue-500/5">
                     <div className="space-y-6">
                       <span className="text-[#2D70FD] text-[10px] font-black uppercase tracking-[0.2em] bg-blue-50 px-5 py-2 rounded-full">
                         Unit Progress Analysis
                       </span>
-                      <h2 className="text-4xl font-black text-slate-800 tracking-tight">
+                      <h2 className="text-3xl md:text-4xl font-black text-slate-800 tracking-tight break-words">
                         {selectedSubject.name}
                       </h2>
-                      <div className="flex items-center gap-5 text-slate-400 font-black text-[12px]">
+                      <div className="flex items-center gap-5 text-slate-400 font-black text-[12px] break-words">
                         <Clock size={20} className="text-blue-400" />
-                        Last Intelligence Scan: {selectedSubject.lastAssessment}
+                        Last Intelligence Scan:{" "}
+                        {selectedSubject.lastAssessment || "--"}
                       </div>
                     </div>
                     <CircularProgress
@@ -349,26 +465,86 @@ const PLPBundle = () => {
                     <h3 className="text-[13px] font-black text-slate-400 px-6 uppercase tracking-[0.2em]">
                       AI Gap Detection
                     </h3>
-                    {selectedSubject.weakAreas.map((wa, i) => (
-                      <div
-                        key={i}
-                        className="bg-white border border-slate-100 p-8 rounded-[2.5rem] flex items-center justify-between hover:shadow-lg transition-all"
-                      >
-                        <div className="flex items-center gap-6">
-                          <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center text-[#2D70FD]">
-                            <Brain size={28} />
-                          </div>
-                          <div>
-                            <h4 className="font-black text-slate-800 text-xl mb-1">
-                              {wa.topic}
-                            </h4>
-                            <p className="text-sm text-slate-500 font-bold leading-relaxed max-w-md">
-                              {wa.desc}
-                            </p>
+                    {selectedSubject.weakAreas.length > 0 ? (
+                      selectedSubject.weakAreas.map((wa, i) => (
+                        <div
+                          key={wa.id || i}
+                          className="bg-white border border-slate-100 p-8 rounded-[2.5rem] hover:shadow-lg transition-all"
+                        >
+                          <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+                            <div className="flex items-center gap-6">
+                              <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center text-[#2D70FD]">
+                                <Brain size={28} />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <h4 className="font-black text-slate-800 text-xl mb-1 break-words">
+                                    {wa.topic}
+                                  </h4>
+                                  {wa.level ? (
+                                    <span
+                                      className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${
+                                        String(wa.level).toLowerCase() === "improved"
+                                          ? "bg-emerald-50 text-emerald-600"
+                                          : "bg-blue-50 text-[#2D70FD]"
+                                      }`}
+                                    >
+                                      {wa.level}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <p className="text-sm text-slate-500 font-bold leading-relaxed break-words">
+                                  {wa.desc || "No additional detail yet."}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2 md:justify-end">
+                              <button
+                                onClick={() =>
+                                  handleStartPractice(selectedSubject.name, wa.topic)
+                                }
+                                className="px-4 py-2 rounded-xl bg-[#2D70FD] text-white text-xs font-black uppercase tracking-widest flex items-center gap-2"
+                              >
+                                <Sparkles size={14} /> Start practice
+                              </button>
+                              <button
+                                onClick={() =>
+                                  handleViewWeakAreaResources(
+                                    selectedSubject.id,
+                                    wa.topic,
+                                  )
+                                }
+                                className="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 text-xs font-black uppercase tracking-widest flex items-center gap-2 bg-white"
+                              >
+                                <BookOpen size={14} /> View resources
+                              </button>
+                              <button
+                                onClick={() => handleMarkWeakAreaImproved(wa)}
+                                disabled={
+                                  markingWeakAreaId === wa.id ||
+                                  String(wa.level || "").toLowerCase() === "improved"
+                                }
+                                className="px-4 py-2 rounded-xl border border-emerald-200 text-emerald-700 text-xs font-black uppercase tracking-widest flex items-center gap-2 bg-emerald-50 disabled:opacity-60"
+                              >
+                                {markingWeakAreaId === wa.id ? (
+                                  <Loader2 size={14} className="animate-spin" />
+                                ) : (
+                                  <CheckCircle size={14} />
+                                )}
+                                Mark improved
+                              </button>
+                            </div>
                           </div>
                         </div>
+                      ))
+                    ) : (
+                      <div className="bg-white border border-slate-100 p-8 rounded-[2.5rem]">
+                        <p className="text-sm font-bold text-slate-500">
+                          No weak area has been recorded for this subject yet.
+                        </p>
                       </div>
-                    ))}
+                    )}
                   </div>
                 </div>
 
@@ -377,8 +553,11 @@ const PLPBundle = () => {
                     <h4 className="text-[13px] font-black text-[#2D70FD] mb-8 uppercase tracking-[0.2em]">
                       AI Recommend
                     </h4>
-                    <p className="text-xl font-black text-slate-700 leading-relaxed relative z-10 mb-8">
-                      "{selectedSubject.feedback}"
+                    <p className="text-xl font-black text-slate-700 leading-relaxed relative z-10 mb-8 break-words">
+                      "
+                      {selectedSubject.feedback ||
+                        "Keep practicing with your current recovery roadmap."}
+                      "
                     </p>
                     <div className="flex items-center gap-4 pt-8 border-t border-slate-50">
                       <div>
@@ -397,22 +576,32 @@ const PLPBundle = () => {
                       Recovery Roadmap
                     </h4>
                     <div className="space-y-4">
-                      {selectedSubject.actions.map((act, i) => (
-                        <div
-                          key={i}
-                          className="flex gap-4 items-start p-5 bg-white/5 rounded-2xl border border-white/10 group hover:bg-white/10 transition-colors"
-                        >
-                          <CheckCircle
-                            size={20}
-                            className="text-blue-500 mt-0.5"
-                          />
-                          <span className="text-sm font-black text-slate-700">
-                            {act}
-                          </span>
+                      {selectedSubject.actions.length > 0 ? (
+                        selectedSubject.actions.map((act, i) => (
+                          <div
+                            key={i}
+                            className="flex gap-4 items-start p-5 bg-white/5 rounded-2xl border border-white/10 group hover:bg-white/10 transition-colors"
+                          >
+                            <CheckCircle
+                              size={20}
+                              className="text-blue-500 mt-0.5"
+                            />
+                            <span className="text-sm font-black text-slate-700 break-words">
+                              {act}
+                            </span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="rounded-2xl border border-slate-100 bg-white p-5 text-sm font-bold text-slate-500">
+                          No action plan items yet.
                         </div>
-                      ))}
+                      )}
                     </div>
-                    <button className="w-full mt-5 py-3 bg-[#2D70FD] text-white rounded-2xl font-black text-sm flex items-center justify-center gap-3 hover:bg-blue-600 transition-all active:scale-95 shadow-lg shadow-blue-500/20">
+                    <button
+                      onClick={() => handleExportPlp(selectedSubject)}
+                      disabled={exportingPlpId === String(selectedSubject?.id || "")}
+                      className="w-full mt-5 py-3 bg-[#2D70FD] text-white rounded-2xl font-black text-sm flex items-center justify-center gap-3 hover:bg-blue-600 transition-all active:scale-95 shadow-lg shadow-blue-500/20 disabled:opacity-60"
+                    >
                       <Printer size={20} /> Generate Assets
                     </button>
                   </div>
@@ -420,8 +609,81 @@ const PLPBundle = () => {
               </div>
               )
             )}
-          </div>
-        </main>
+
+            {isResourcesOpen ? (
+              <div className="fixed inset-0 z-[120] flex items-center justify-center p-6">
+                <div
+                  className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+                  onClick={() => {
+                    if (!isResourcesLoading) setIsResourcesOpen(false);
+                  }}
+                />
+                <div className="relative w-full max-w-3xl rounded-[2rem] bg-white border border-slate-100 shadow-2xl p-8">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-[#2D70FD]">
+                        Linked Books
+                      </p>
+                      <h3 className="mt-2 text-2xl font-black text-slate-900 break-words">
+                        {resourceTopic || selectedSubject?.name || "Resources"}
+                      </h3>
+                      {resourceLesson?.recommendedPages ? (
+                        <p className="mt-1 text-xs font-bold text-slate-500">
+                          Recommended pages: {resourceLesson.recommendedPages}
+                        </p>
+                      ) : null}
+                    </div>
+                    <button
+                      onClick={() => setIsResourcesOpen(false)}
+                      className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 font-black text-sm"
+                    >
+                      Close
+                    </button>
+                  </div>
+
+                  <div className="mt-6 max-h-[60vh] overflow-y-auto space-y-3">
+                    {isResourcesLoading ? (
+                      <div className="py-16 flex items-center justify-center">
+                        <Loader2 size={28} className="animate-spin text-[#2D70FD]" />
+                      </div>
+                    ) : linkedResources.length > 0 ? (
+                      linkedResources.map((resource) => (
+                        <div
+                          key={resource.id}
+                          className="rounded-2xl border border-slate-100 p-4 flex items-center justify-between gap-4"
+                        >
+                          <div className="min-w-0">
+                            <p className="font-black text-slate-800 break-words">
+                              {resource.name}
+                            </p>
+                            <p className="text-xs font-bold text-slate-500 break-words">
+                              {resource.subject || selectedSubject?.name}{" "}
+                              {resource.date ? `| ${resource.date}` : ""}
+                            </p>
+                          </div>
+                          <a
+                            href={resource.url || undefined}
+                            target={resource.url ? "_blank" : undefined}
+                            rel={resource.url ? "noreferrer noopener" : undefined}
+                            className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest flex items-center gap-2 ${
+                              resource.url
+                                ? "bg-[#2D70FD] text-white"
+                                : "bg-slate-100 text-slate-400 pointer-events-none"
+                            }`}
+                          >
+                            Open <ExternalLink size={14} />
+                          </a>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm font-bold text-slate-500 py-8 text-center">
+                        No linked books found for this weak area.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : null}
       </div>
     </div>
   );

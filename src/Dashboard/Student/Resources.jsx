@@ -10,11 +10,11 @@ import {
   X,
   Eye,
   ExternalLink,
-  Loader2,
 } from "lucide-react";
 import { toast } from "react-toastify";
 import api from "../../api/client";
 import EmptyState from "../../Component/EmptyState";
+import StudentPageSkeleton from "../../Component/StudentPageSkeleton";
 
 const Resources = () => {
   const [viewMode, setViewMode] = useState("grid");
@@ -111,11 +111,7 @@ const Resources = () => {
   );
 
   if (isLoading) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center bg-[#F8FAFC]">
-        <Loader2 className="animate-spin text-blue-600" size={40} />
-      </div>
-    );
+    return <StudentPageSkeleton variant="resources" />;
   }
 
   return (

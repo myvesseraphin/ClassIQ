@@ -10,11 +10,11 @@ import {
   X,
   AlertTriangle,
   ChevronDown,
-  Loader2,
 } from "lucide-react";
 import { toast } from "react-toastify";
 import api from "../../api/client";
 import EmptyState from "../../Component/EmptyState";
+import StudentPageSkeleton from "../../Component/StudentPageSkeleton";
 
 const MyCourses = () => {
   const isUuid = (value) =>
@@ -42,7 +42,6 @@ const MyCourses = () => {
   const currentGrade = "Year 1B";
   const program = "RCA";
 
-
   const filters = ["All", "Core", "Elective"];
 
   const filteredCourses = courses.filter(
@@ -51,23 +50,24 @@ const MyCourses = () => {
       course.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
-  const { totalCourses, coreCount, electiveCount, avgProgress } = useMemo(() => {
-    const total = courses.length;
-    const core = courses.filter((c) => c.category === "Core").length;
-    const elective = courses.filter((c) => c.category === "Elective").length;
-    const average =
-      total > 0
-        ? Math.round(
-            courses.reduce((sum, c) => sum + (c.progress || 0), 0) / total,
-          )
-        : 0;
-    return {
-      totalCourses: total,
-      coreCount: core,
-      electiveCount: elective,
-      avgProgress: average,
-    };
-  }, [courses]);
+  const { totalCourses, coreCount, electiveCount, avgProgress } =
+    useMemo(() => {
+      const total = courses.length;
+      const core = courses.filter((c) => c.category === "Core").length;
+      const elective = courses.filter((c) => c.category === "Elective").length;
+      const average =
+        total > 0
+          ? Math.round(
+              courses.reduce((sum, c) => sum + (c.progress || 0), 0) / total,
+            )
+          : 0;
+      return {
+        totalCourses: total,
+        coreCount: core,
+        electiveCount: elective,
+        avgProgress: average,
+      };
+    }, [courses]);
 
   useEffect(() => {
     let isMounted = true;
@@ -189,11 +189,7 @@ const MyCourses = () => {
   };
 
   if (isLoading) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center bg-[#F8FAFC]">
-        <Loader2 className="animate-spin text-blue-600" size={40} />
-      </div>
-    );
+    return <StudentPageSkeleton variant="courses" />;
   }
 
   return (
@@ -421,7 +417,6 @@ const MyCourses = () => {
                     rows="3"
                     value={mismatchDetails}
                     onChange={(e) => setMismatchDetails(e.target.value)}
-                    placeholder="Add any extra context that will help the review team..."
                     className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all font-bold resize-none"
                   />
                 </div>
@@ -465,7 +460,7 @@ const MyCourses = () => {
               <div className="space-y-4">
                 <div>
                   <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block mb-2">
-                    Subject Name
+                    Subject
                   </label>
                   <input
                     type="text"
@@ -474,7 +469,6 @@ const MyCourses = () => {
                       setMissingSubject(e.target.value);
                       if (missingSubjectError) setMissingSubjectError(false);
                     }}
-                    placeholder="E.g. Chemistry"
                     className={`w-full bg-slate-50 border px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all font-bold ${
                       missingSubjectError
                         ? "border-blue-300 focus:ring-blue-400"
@@ -506,13 +500,12 @@ const MyCourses = () => {
 
                 <div>
                   <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block mb-2">
-                    Additional Details (optional)
+                    Details (optional)
                   </label>
                   <textarea
                     rows="3"
                     value={missingDetails}
                     onChange={(e) => setMissingDetails(e.target.value)}
-                    placeholder="Include any helpful information"
                     className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all font-bold resize-none"
                   />
                 </div>

@@ -35,19 +35,19 @@ const Footer = () => {
             <div className="flex gap-4 mt-2">
               <a
                 href="#"
-                className="w-10 h-10 flex items-center justify-center bg-slate-50 rounded-full text-slate-400 hover:text-[#1877F2] hover:bg-blue-50 transition-all duration-300"
+                className="w-10 h-10 flex items-center justify-center bg-slate-50 rounded-full text-slate-400 hover:text-[#2D70FD] hover:bg-blue-50 transition-all duration-300"
               >
                 <Linkedin size={18} />
               </a>
               <a
                 href="#"
-                className="w-10 h-10 flex items-center justify-center bg-slate-50 rounded-full text-slate-400 hover:text-[#1877F2] hover:bg-blue-50 transition-all duration-300"
+                className="w-10 h-10 flex items-center justify-center bg-slate-50 rounded-full text-slate-400 hover:text-[#2D70FD] hover:bg-blue-50 transition-all duration-300"
               >
                 <Twitter size={18} />
               </a>
               <a
                 href="#"
-                className="w-10 h-10 flex items-center justify-center bg-slate-50 rounded-full text-slate-400 hover:text-[#1877F2] hover:bg-blue-50 transition-all duration-300"
+                className="w-10 h-10 flex items-center justify-center bg-slate-50 rounded-full text-slate-400 hover:text-[#2D70FD] hover:bg-blue-50 transition-all duration-300"
               >
                 <Facebook size={18} />
               </a>
@@ -63,7 +63,7 @@ const Footer = () => {
               <li>
                 <a
                   href="#hero"
-                  className="hover:text-[#1877F2] transition-colors duration-300"
+                  className="hover:text-[#2D70FD] transition-colors duration-300"
                 >
                   Home
                 </a>
@@ -71,7 +71,7 @@ const Footer = () => {
               <li>
                 <a
                   href="#impact"
-                  className="hover:text-[#1877F2] transition-colors duration-300"
+                  className="hover:text-[#2D70FD] transition-colors duration-300"
                 >
                   About Us
                 </a>
@@ -79,7 +79,7 @@ const Footer = () => {
               <li>
                 <a
                   href="#features"
-                  className="hover:text-[#1877F2] transition-colors duration-300"
+                  className="hover:text-[#2D70FD] transition-colors duration-300"
                 >
                   Features
                 </a>
@@ -87,7 +87,7 @@ const Footer = () => {
               <li>
                 <a
                   href="#team"
-                  className="hover:text-[#1877F2] transition-colors duration-300"
+                  className="hover:text-[#2D70FD] transition-colors duration-300"
                 >
                   Our Team
                 </a>
@@ -114,3 +114,4 @@ const Footer = () => {
 };
 
 export default Footer;
+

@@ -1,21 +1,59 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import logo from "../assets/logo.png";
 import {
   LayoutGrid,
   BookOpen,
   GraduationCap,
+  ClipboardList,
   FileText,
   Brain,
   Library,
-  UserCircle,
-  Settings,
+  User,
   LogOut,
 } from "lucide-react";
-import api from "../api/client";
+import api, { resolveMediaUrl } from "../api/client";
+import logo from "../assets/logo.png";
 
 const Sidebar = () => {
   const navigate = useNavigate();
+  const [profile, setProfile] = useState({
+    name: "",
+    school: "",
+    avatarUrl: "",
+  });
+  const [profileLoading, setProfileLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    const loadProfile = async () => {
+      try {
+        const { data } = await api.get("/student/profile");
+        if (!active) return;
+        const first = data.user?.firstName || "";
+        const last = data.user?.lastName || "";
+        const fullName = `${first} ${last}`.trim() || "Student";
+        setProfile({
+          name: fullName,
+          school: data.user?.schoolName || "ClassIQ",
+          avatarUrl: resolveMediaUrl(data.user?.avatarUrl || ""),
+        });
+      } catch (err) {
+        console.error("Failed to load sidebar profile", err);
+        if (!active) return;
+        setProfile((prev) => ({
+          ...prev,
+          name: prev.name || "Student",
+          school: prev.school || "School",
+        }));
+      } finally {
+        if (active) setProfileLoading(false);
+      }
+    };
+    loadProfile();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const handleLogout = () => {
     api.post("/auth/logout").catch(() => {});
@@ -50,14 +88,14 @@ const Sidebar = () => {
       path: "/student/assessments",
     },
     {
+      icon: <ClipboardList size={22} strokeWidth={2.5} />,
+      label: "Assignments",
+      path: "/student/assignments",
+    },
+    {
       icon: <Brain size={22} strokeWidth={2.5} />,
       label: "Exercises",
       path: "/student/Exercise",
-    },
-    {
-      icon: <UserCircle size={22} strokeWidth={2.5} />,
-      label: "Profile",
-      path: "/student/profile",
     },
   ];
 
@@ -67,7 +105,7 @@ const Sidebar = () => {
         <div className="w-15 h-15 flex items-center justify-center overflow-hidden">
           <img
             src={logo}
-            alt="ClassIQ Logo"
+            alt="ClassIQ logo"
             className="w-full h-full object-contain"
           />
         </div>
@@ -97,15 +135,45 @@ const Sidebar = () => {
           </NavLink>
         ))}
       </nav>
-      <div className="px-4 pb-10 space-y-1">
-        <NavLink
-          to="/student/settings"
-          className="flex items-center gap-4 px-5 py-3 text-slate-500 hover:text-slate-900 transition-colors font-bold text-[16px]"
-        >
-          <Settings size={22} strokeWidth={2.5} />
-          <span>Settings</span>
+      <div className="px-4 pb-10 space-y-4">
+        <NavLink to="/student/profile" className="group block">
+          <div className="flex items-center gap-3 rounded-3xl bg-blue-50/40 px-4 py-4 transition-all duration-300 hover:bg-blue-50/60 border border-transparent hover:border-blue-100">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="h-11 w-11 aspect-square rounded-full overflow-hidden bg-white text-slate-400 flex flex-shrink-0 items-center justify-center font-bold border border-slate-200">
+                {profile.avatarUrl ? (
+                  <img
+                    src={profile.avatarUrl}
+                    alt={profile.name}
+                    className="h-full w-full object-cover"
+                    onError={(e) => {
+                      e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                        profile.name,
+                      )}`;
+                    }}
+                  />
+                ) : (
+                  <User size={22} className="text-blue-500" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <p className="text-[15px] font-bold text-slate-900 truncate">
+                  {profileLoading ? (
+                    <span className="block h-4 w-24 rounded bg-slate-200 animate-pulse" />
+                  ) : (
+                    profile.name || "Student"
+                  )}
+                </p>
+                <p className="text-[12px] text-slate-500 truncate">
+                  {profileLoading ? (
+                    <span className="mt-1 block h-3 w-20 rounded bg-slate-200 animate-pulse" />
+                  ) : (
+                    profile.school || "School"
+                  )}
+                </p>
+              </div>
+            </div>
+          </div>
         </NavLink>
-
         <button
           onClick={handleLogout}
           className="w-full flex items-center gap-4 px-5 py-3 text-slate-500 hover:text-red-600 transition-colors cursor-pointer group font-bold text-[16px]"

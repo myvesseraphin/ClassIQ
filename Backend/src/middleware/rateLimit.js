@@ -26,3 +26,9 @@ export const uploadLimiter = buildLimiter({
   max: 20,
   message: "Too many uploads. Please try again later.",
 });
+
+export const aiLimiter = buildLimiter({
+  windowMs: Number.parseInt(process.env.AI_LIMIT_WINDOW_MS || "60000", 10) || 60000,
+  max: Number.parseInt(process.env.AI_LIMIT_MAX || "5", 10) || 5,
+  message: "ClassIQ AI is cooling down. Please wait and try again.",
+});

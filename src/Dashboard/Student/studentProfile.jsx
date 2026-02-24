@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { toast } from "react-toastify";
 import api, { resolveMediaUrl } from "../../api/client";
+import StudentPageSkeleton from "../../Component/StudentPageSkeleton";
 
 const StudentProfile = () => {
   const navigate = useNavigate();
@@ -160,11 +161,7 @@ const StudentProfile = () => {
   };
 
   if (isLoading) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center bg-[#F8FAFC]">
-        <Loader2 className="animate-spin text-blue-600" size={40} />
-      </div>
-    );
+    return <StudentPageSkeleton variant="profile" />;
   }
 
   return (

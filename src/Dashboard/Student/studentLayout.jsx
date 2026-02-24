@@ -3,6 +3,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import Sidebar from "../../Component/Sidebar";
 import Navbar from "../../Component/Navbar";
 import { Menu, X } from "lucide-react";
+import logo from "../../assets/logo.png";
 
 const StudentLayout = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -28,9 +29,12 @@ const StudentLayout = () => {
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-100">
           <div className="flex items-center justify-between p-4 lg:hidden">
-            <span className="font-black text-xl tracking-tighter text-blue-600">
-              ClassIQ
-            </span>
+            <div className="flex items-center gap-2.5 min-w-0">
+              <img src={logo} alt="ClassIQ Logo" className="h-8 w-auto" />
+              <span className="font-black text-xl tracking-tighter text-slate-900 truncate">
+                ClassIQ
+              </span>
+            </div>
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               className="p-2.5 rounded-2xl bg-slate-50 text-slate-600 hover:bg-slate-100 transition-colors active:scale-95"

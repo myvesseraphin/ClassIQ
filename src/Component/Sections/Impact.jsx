@@ -28,7 +28,7 @@ const Impact = () => {
       className="pt-32 pb-48 bg-white relative overflow-hidden font-sans"
     >
       <div className="absolute top-0 left-0 w-full h-[2px] bg-slate-100 overflow-hidden">
-        <div className="w-1/3 h-full bg-gradient-to-r from-transparent via-[#1877F2] to-transparent animate-border-beam"></div>
+        <div className="w-1/3 h-full bg-gradient-to-r from-transparent via-[#2D70FD] to-transparent animate-border-beam"></div>
       </div>
       <div className="absolute top-0 left-0 w-full overflow-hidden leading-[0]">
         <svg
@@ -47,7 +47,7 @@ const Impact = () => {
         <div
           className="absolute inset-0 opacity-[0.12]"
           style={{
-            backgroundImage: `radial-gradient(#1877F2 1.5px, transparent 1.5px)`,
+            backgroundImage: `radial-gradient(#2D70FD 1.5px, transparent 1.5px)`,
             backgroundSize: "38px 38px",
           }}
         ></div>
@@ -81,7 +81,7 @@ const Impact = () => {
             <div className="grid gap-y-10">
               {points.map((point, index) => (
                 <div key={index} className="flex items-start gap-6 group">
-                  <div className="flex-shrink-0 w-12 h-12 flex items-center justify-center bg-white text-[#1877F2] rounded-2xl border border-slate-100 group-hover:bg-[#1877F2] group-hover:text-white group-hover:border-[#1877F2] group-hover:shadow-lg transition-all duration-500 shadow-sm">
+                  <div className="flex-shrink-0 w-12 h-12 flex items-center justify-center bg-white text-[#2D70FD] rounded-2xl border border-slate-100 group-hover:bg-[#2D70FD] group-hover:text-white group-hover:border-[#2D70FD] group-hover:shadow-lg transition-all duration-500 shadow-sm">
                     {point.icon}
                   </div>
                   <div className="pt-1">
@@ -155,4 +155,5 @@ const Impact = () => {
 };
 
 export default Impact;
+
 

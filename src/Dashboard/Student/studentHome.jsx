@@ -14,7 +14,6 @@ import {
   Bell,
   ChevronLeft,
   ChevronRight,
-  Loader2,
   Plus,
   Calendar,
   CheckCircle2,
@@ -22,12 +21,14 @@ import {
 } from "lucide-react";
 import { toast } from "react-toastify";
 import api, { resolveMediaUrl } from "../../api/client";
+import StudentPageSkeleton from "../../Component/StudentPageSkeleton";
 
 const StudentHome = () => {
   const defaultSummary = [
-    { label: "Attendance", current: 0, total: 0, percent: "0%" },
+    { label: "Subjects", current: 0, total: 0, percent: "0%" },
     { label: "Assessments", current: 0, total: 0, percent: "0%" },
-    { label: "Assignments", current: 0, total: 0, percent: "0%" },
+    { label: "Exercises", current: 0, total: 0, percent: "0%" },
+    { label: "Tasks", current: 0, total: 0, percent: "0%" },
   ];
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -36,6 +37,7 @@ const StudentHome = () => {
   const [tasks, setTasks] = useState([]);
   const [taskTitle, setTaskTitle] = useState("");
   const [taskDue, setTaskDue] = useState("");
+  const [lastDraftExercise, setLastDraftExercise] = useState(null);
   const navigate = useNavigate();
   const [studentData, setStudentData] = useState({
     name: "",
@@ -51,6 +53,7 @@ const StudentHome = () => {
     weakness: "",
     summary: defaultSummary,
     scores: [],
+    dailyMarks: [],
     schedule: [],
   });
 
@@ -68,7 +71,12 @@ const StudentHome = () => {
               ? data.summary
               : prev.summary,
           scores: Array.isArray(data.scores) ? data.scores : prev.scores,
-          schedule: Array.isArray(data.schedule) ? data.schedule : prev.schedule,
+          dailyMarks: Array.isArray(data.dailyMarks)
+            ? data.dailyMarks
+            : prev.dailyMarks,
+          schedule: Array.isArray(data.schedule)
+            ? data.schedule
+            : prev.schedule,
         }));
         setTasks(data.tasks || []);
       } catch (err) {
@@ -87,6 +95,39 @@ const StudentHome = () => {
     return () => {
       isMounted = false;
     };
+  }, []);
+
+  useEffect(() => {
+    const readDraftMeta = () => {
+      try {
+        const lastId = localStorage.getItem("classiq.lastDraftExerciseId.v1");
+        if (!lastId) {
+          setLastDraftExercise(null);
+          return;
+        }
+        const metaRaw = localStorage.getItem(
+          `classiq.exerciseDraftMeta.v1.${lastId}`,
+        );
+        if (!metaRaw) {
+          setLastDraftExercise(null);
+          return;
+        }
+        const meta = JSON.parse(metaRaw);
+        setLastDraftExercise({
+          id: meta?.id || lastId,
+          name: meta?.name || "Exercise",
+          subject: meta?.subject || "",
+          questionCount: Number(meta?.questionCount) || 0,
+          updatedAt: meta?.updatedAt || null,
+        });
+      } catch {
+        setLastDraftExercise(null);
+      }
+    };
+
+    readDraftMeta();
+    window.addEventListener("storage", readDraftMeta);
+    return () => window.removeEventListener("storage", readDraftMeta);
   }, []);
 
   const addTask = async () => {
@@ -114,9 +155,7 @@ const StudentHome = () => {
       const { data } = await api.patch(`/student/tasks/${id}`, {
         completed: !current.completed,
       });
-      setTasks((prev) =>
-        prev.map((t) => (t.id === id ? data.task : t)),
-      );
+      setTasks((prev) => prev.map((t) => (t.id === id ? data.task : t)));
     } catch (err) {
       console.error("Failed to update task", err);
       toast.error("Failed to update task.");
@@ -132,10 +171,19 @@ const StudentHome = () => {
       toast.error("Failed to delete task.");
     }
   };
+
+  const continueLastExercise = () => {
+    if (!lastDraftExercise?.id) return;
+    const params = new URLSearchParams();
+    params.set("exerciseId", lastDraftExercise.id);
+    if (lastDraftExercise.subject) params.set("subject", lastDraftExercise.subject);
+    navigate(`/student/exercise?${params.toString()}`);
+  };
   const summaryIcons = {
-    Attendance: <UserCheck size={20} />,
+    Subjects: <UserCheck size={20} />,
     Assessments: <Activity size={20} />,
-    Assignments: <BookOpen size={20} />,
+    Exercises: <BookOpen size={20} />,
+    Tasks: <CheckCircle2 size={20} />,
   };
 
   const filteredSchedule = studentData.schedule.filter((item) => {
@@ -151,37 +199,65 @@ const StudentHome = () => {
     weekday: "short",
   }).format(new Date());
 
+  const graphPointsRaw =
+    Array.isArray(studentData.dailyMarks) && studentData.dailyMarks.length > 0
+      ? studentData.dailyMarks
+      : Array.isArray(studentData.scores)
+        ? studentData.scores.map((score) => ({
+            label: `Term ${score.term_id}`,
+            val: Number(score.val) || 0,
+          }))
+        : [];
+  const graphPoints = graphPointsRaw
+    .map((point) => ({
+      label: point?.label || "",
+      val: Math.max(0, Math.min(100, Number(point?.val) || 0)),
+    }))
+    .filter((point) => Number.isFinite(point.val));
+  const chartWidth = 400;
+  const chartHeight = 120;
+  const chartPaddingX = 26;
+  const chartTop = 10;
+  const chartBottom = 32;
+  const chartUsableHeight = chartHeight - chartTop - chartBottom;
+  const xStep =
+    graphPoints.length > 1
+      ? (chartWidth - chartPaddingX * 2) / (graphPoints.length - 1)
+      : 0;
+  const positionedGraphPoints = graphPoints.map((point, index) => {
+    const x =
+      graphPoints.length === 1
+        ? chartWidth / 2
+        : chartPaddingX + index * xStep;
+    const y = chartTop + ((100 - point.val) / 100) * chartUsableHeight;
+    return { ...point, x, y };
+  });
   const linePath =
-    studentData.scores.length > 0
-      ? studentData.scores
-          .map((s, i) => {
-            const x = 50 + i * 100;
-            const y = 80 - (s.val - 60) * 2;
-            return `${i === 0 ? "M" : "L"} ${x},${y}`;
-          })
+    positionedGraphPoints.length > 0
+      ? positionedGraphPoints
+          .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x},${point.y}`)
           .join(" ")
       : "";
+  const labelStep = Math.max(1, Math.ceil(positionedGraphPoints.length / 6));
+  const rankingLabel = studentData.ranking || "Ranking unavailable";
   if (loading) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center bg-[#F8FAFC]">
-        <Loader2 className="animate-spin text-blue-600" size={40} />
-      </div>
-    );
+    return <StudentPageSkeleton variant="home" />;
   }
 
   return (
-    <div className="flex h-screen bg-[#F8FAFC] overflow-hidden">
+    <div className="w-full h-full animate-in fade-in duration-700 font-sans">
       <style>{`
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
       `}</style>
 
-      <div className="flex-1 overflow-y-auto no-scrollbar p-8 lg:p-10 animate-in fade-in duration-700">
-        <div className="max-w-5xl mx-auto space-y-8">
-          <div className="flex items-center justify-between gap-8">
-            <div className="flex-1 relative max-w-md">
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-8">
+        <div className="min-w-0">
+          <div className="max-w-5xl mx-auto space-y-8">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 sm:gap-6">
+            <div className="flex-1 relative max-w-md w-full group">
               <Search
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-[#2D70FD]"
                 size={18}
               />
               <input
@@ -189,15 +265,16 @@ const StudentHome = () => {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search schedules..."
-                className="w-full bg-white border border-slate-100 py-3 pl-12 pr-4 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 shadow-sm transition-all"
+                className="w-full bg-white border-2 border-slate-100 py-3 pl-11 pr-4 rounded-2xl text-sm font-bold text-slate-700 outline-none focus:border-[#2D70FD] shadow-sm transition-all"
               />
             </div>
             <button
               onClick={() => navigate("/student/notifications")}
-              className="p-3 bg-white border border-slate-100 rounded-2xl text-slate-400 hover:text-blue-600 shadow-sm relative transition-all active:scale-90"
+              className="p-3 bg-white border-2 border-slate-100 rounded-2xl text-slate-400 hover:text-[#2D70FD] shadow-sm relative transition-all active:scale-90 self-end sm:self-auto"
+              aria-label="Open notifications"
             >
               <Bell size={20} />
-              <span className="absolute top-2 right-2 w-2 h-2 bg-blue-600 rounded-full border-2 border-white"></span>
+              <span className="absolute top-2 right-2 w-2 h-2 bg-[#2D70FD] rounded-full border-2 border-white"></span>
             </button>
           </div>
 
@@ -209,7 +286,7 @@ const StudentHome = () => {
               Student Dashboard
             </p>
           </div>
-          <section className="bg-blue-600 rounded-[2.5rem] p-8 shadow-xl shadow-blue-100 text-white relative overflow-hidden">
+          <section className="bg-[#2D70FD] rounded-[2.5rem] p-8 shadow-xl shadow-blue-100 text-white relative overflow-hidden">
             <div className="absolute -right-10 -top-10 w-40 h-40 border-[20px] border-white/10 rounded-full" />
             <div className="absolute -right-20 -bottom-20 w-60 h-60 border-[40px] border-white/5 rounded-full" />
 
@@ -221,15 +298,15 @@ const StudentHome = () => {
                 {studentData.currentTerm} <ChevronDown size={14} />
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative z-10">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 relative z-10">
               {studentData.summary.map((stat, i) => {
                 const percentValue = parseInt(stat.percent, 10) || 0;
                 return (
                   <div
                     key={i}
-                    className="flex items-start gap-4 border-r border-white/10 last:border-0 pr-4"
+                    className="flex items-start gap-4 rounded-2xl bg-white/10 border border-white/10 p-4"
                   >
-                    <div className="relative w-12 h-12 flex items-center justify-center bg-white rounded-2xl shadow-lg text-blue-600 overflow-hidden">
+                    <div className="relative w-12 h-12 flex items-center justify-center bg-white rounded-2xl shadow-lg text-[#2D70FD] overflow-hidden">
                       <svg
                         className="absolute w-full h-full transform -rotate-90"
                         viewBox="0 0 36 36"
@@ -243,7 +320,7 @@ const StudentHome = () => {
                           strokeOpacity="0.2"
                         />
                         <path
-                          className="text-blue-600"
+                          className="text-[#2D70FD]"
                           strokeDasharray={`${percentValue}, 100`}
                           d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                           fill="none"
@@ -279,7 +356,7 @@ const StudentHome = () => {
               <section className="bg-white border border-slate-100 rounded-[2.5rem] p-8 shadow-sm h-full">
                 <h3 className="text-lg font-black text-slate-800 mb-10 flex items-center gap-2">
                   Score Analysis{" "}
-                  <TrendingUp size={18} className="text-blue-600" />
+                  <TrendingUp size={18} className="text-[#2D70FD]" />
                 </h3>
                 <div className="relative h-48 w-full">
                   <svg
@@ -295,7 +372,7 @@ const StudentHome = () => {
                         y2="0"
                       >
                         <stop offset="0%" stopColor="#dbeafe" />
-                        <stop offset="100%" stopColor="#2563eb" />
+                        <stop offset="100%" stopColor="#2D70FD" />
                       </linearGradient>
                     </defs>
                     <path
@@ -305,41 +382,46 @@ const StudentHome = () => {
                       strokeWidth="4"
                       strokeLinecap="round"
                     />
-                    {studentData.scores.map((s, i) => {
-                      const x = 50 + i * 100;
-                      const y = 80 - (s.val - 60) * 2;
+                    {positionedGraphPoints.map((point, i) => {
                       return (
                         <g key={i}>
                           <circle
-                            cx={x}
-                            cy={y}
+                            cx={point.x}
+                            cy={point.y}
                             r="6"
-                            fill="#2563eb"
+                            fill="#2D70FD"
                             stroke="white"
                             strokeWidth="2"
                           />
                           <foreignObject
-                            x={x - 20}
-                            y={y - 35}
+                            x={point.x - 20}
+                            y={point.y - 35}
                             width="40"
                             height="25"
                           >
-                            <div className="text-[10px] font-black text-blue-600 bg-white px-2 py-1 rounded-lg border border-blue-100 shadow-sm text-center">
-                              {s.val}%
+                            <div className="text-[10px] font-black text-[#2D70FD] bg-white px-2 py-1 rounded-lg border border-blue-100 shadow-sm text-center">
+                              {point.val}%
                             </div>
                           </foreignObject>
-                          <text
-                            x={x}
-                            y="115"
-                            textAnchor="middle"
-                            className="text-[10px] font-bold fill-slate-400 uppercase"
-                          >
-                            Term {s.term_id}
-                          </text>
+                          {i % labelStep === 0 || i === positionedGraphPoints.length - 1 ? (
+                            <text
+                              x={point.x}
+                              y="115"
+                              textAnchor="middle"
+                              className="text-[10px] font-bold fill-slate-400 lowercase"
+                            >
+                              {String(point.label || "").toLowerCase()}
+                            </text>
+                          ) : null}
                         </g>
                       );
                     })}
                   </svg>
+                  {positionedGraphPoints.length === 0 ? (
+                    <p className="absolute inset-0 flex items-center justify-center text-sm font-semibold text-slate-400">
+                      No marks yet for daily analysis.
+                    </p>
+                  ) : null}
                 </div>
               </section>
             </div>
@@ -348,41 +430,79 @@ const StudentHome = () => {
               <section className="relative overflow-hidden bg-white/40 backdrop-blur-md border border-white/20 rounded-[2.5rem] p-8 shadow-xl h-full flex flex-col items-center justify-center text-center">
                 <div className="absolute -top-6 -right-6 w-24 h-24 bg-blue-400/20 rounded-full" />
 
-                <p className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-4 relative z-10">
+                <p className="text-[10px] font-black text-[#2D70FD] uppercase tracking-[0.2em] mb-4 relative z-10">
                   Academic Average
                 </p>
                 <h2 className="text-6xl font-black text-slate-900 mb-4 tracking-tighter relative z-10">
                   {studentData.overallPercentage || "0%"}
                 </h2>
-                <div className="bg-white-600 text-black px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-lg shadow-blue-100 relative z-10">
-                  {studentData.ranking || "Ranking unavailable"}
+                <div className="flex flex-col items-center gap-1 relative z-10">
+                  <div className="bg-white text-slate-700 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-lg shadow-blue-100">
+                    {rankingLabel}
+                  </div>
                 </div>
               </section>
             </div>
           </div>
 
-          <div className="bg-white border border-slate-100 rounded-[2.5rem] p-8 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
-            <div className="flex items-center gap-4">
-              <div className="p-4 bg-blue-50 text-blue-600 rounded-2xl">
-                <Target size={24} />
+            {lastDraftExercise ? (
+              <div className="bg-white border border-slate-100 rounded-[2.5rem] p-8 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
+                <div className="flex items-center gap-4">
+                  <div className="p-4 bg-blue-50 text-[#2D70FD] rounded-2xl">
+                    <BookOpen size={24} />
+                  </div>
+                  <div className="space-y-1">
+                    <h2 className="text-xl font-black text-slate-800 tracking-tight">
+                      Continue Last Exercise
+                    </h2>
+                    <p className="text-slate-500 font-medium text-sm break-words">
+                      {lastDraftExercise.name}{" "}
+                      {lastDraftExercise.subject
+                        ? `(${lastDraftExercise.subject})`
+                        : ""}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={continueLastExercise}
+                  className="bg-[#2D70FD] text-white px-8 py-4 rounded-xl font-black text-xs uppercase tracking-widest flex items-center gap-2 hover:bg-[#1F5AE0] transition-all shadow-lg active:scale-95"
+                >
+                  Continue <ArrowRight size={16} />
+                </button>
               </div>
-              <div className="space-y-1">
-                <h2 className="text-xl font-black text-slate-800 tracking-tight">
-                  Weakness Detected
-                </h2>
-                <p className="text-slate-500 font-medium text-sm">
-                  {studentData.weakness || "No weakness flagged yet."}
-                </p>
+            ) : null}
+
+            <div className="bg-white border border-slate-100 rounded-[2.5rem] p-8 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
+                <div className="flex items-center gap-4">
+                <div className="p-4 bg-blue-50 text-[#2D70FD] rounded-2xl">
+                  <Target size={24} />
+                </div>
+                <div className="space-y-1">
+                  <h2 className="text-xl font-black text-slate-800 tracking-tight">
+                    Latest Weak Area
+                  </h2>
+                  <p className="text-slate-500 font-medium text-sm">
+                    {studentData.weakness ||
+                      "No weak area identified yet from recent work."}
+                  </p>
+                </div>
               </div>
+              <button
+                onClick={() => {
+                  const params = new URLSearchParams();
+                  if (studentData.weakness) params.set("weakArea", studentData.weakness);
+                  navigate(`/student/exercise${params.toString() ? `?${params.toString()}` : ""}`);
+                }}
+                className="bg-[#2D70FD] text-white px-8 py-4 rounded-xl font-black text-xs uppercase tracking-widest flex items-center gap-2 hover:bg-[#1F5AE0] transition-all shadow-lg active:scale-95"
+              >
+                Practice Weak Area <ArrowRight size={16} />
+              </button>
             </div>
-            <button className="bg-blue-600 text-white px-8 py-4 rounded-xl font-black text-xs uppercase tracking-widest flex items-center gap-2 hover:bg-blue-700 transition-all shadow-lg active:scale-95">
-              Start Exercises <ArrowRight size={16} />
-            </button>
           </div>
         </div>
-      </div>
-      <div className="w-[320px] bg-white border-l border-slate-100 overflow-y-auto no-scrollbar p-5 hidden xl:block">
-        <div className="space-y-10">
+
+        <aside className="bg-white border border-slate-100 rounded-[2.5rem] p-6 md:p-8 shadow-sm xl:rounded-none xl:border-l xl:border-r-0 xl:border-t-0 xl:border-b-0 xl:p-5 xl:shadow-none">
+          <div className="space-y-10">
           <div className="text-center space-y-4">
             <div className="w-24 h-24 mx-auto rounded-full border-4 border-blue-50 p-1 overflow-hidden">
               <img
@@ -409,24 +529,27 @@ const StudentHome = () => {
                 {studentData.id}
               </p>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                {(studentData.gradeLevel || "—") +
-                  " • " +
-                  (studentData.className || studentData.program || "—")}
+                {(studentData.gradeLevel || "--") +
+                  " | " +
+                  (studentData.className || studentData.program || "--")}
               </p>
             </div>
           </div>
 
           <div className="space-y-2">
-            <style>{`.rdp { --rdp-cell-size: 38px; --rdp-accent-color: #2563eb; margin: 0; } .rdp-day_selected:not([disabled]) { font-weight: 900; background-color: #2563eb; } .rdp-day { font-weight: 600; }`}</style>
-            <DayPicker
-              mode="single"
-              selected={selectedDate}
-              onSelect={setSelectedDate}
-              components={{
-                IconLeft: () => <ChevronLeft size={16} />,
-                IconRight: () => <ChevronRight size={16} />,
-              }}
-            />
+            <style>{`.rdp { --rdp-cell-size: 38px; --rdp-accent-color: #2D70FD; margin: 0; } .rdp-day_selected:not([disabled]) { font-weight: 900; background-color: #2D70FD; } .rdp-day { font-weight: 600; }`}</style>
+            <div className="flex justify-center">
+              <DayPicker
+                navLayout="around"
+                mode="single"
+                selected={selectedDate}
+                onSelect={setSelectedDate}
+                components={{
+                  IconLeft: () => <ChevronLeft size={16} />,
+                  IconRight: () => <ChevronRight size={16} />,
+                }}
+              />
+            </div>
           </div>
 
           <div className="space-y-6">
@@ -436,7 +559,7 @@ const StudentHome = () => {
               </h3>
               <button
                 onClick={() => setShowAddTask(true)}
-                className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center active:scale-75 transition-transform"
+                className="w-8 h-8 rounded-full bg-[#2D70FD] text-white flex items-center justify-center active:scale-75 transition-transform"
               >
                 <Plus size={18} />
               </button>
@@ -445,7 +568,7 @@ const StudentHome = () => {
               {filteredSchedule.map((item, i) => (
                 <div
                   key={i}
-                  className={`p-5 rounded-2xl border transition-all ${item.day.startsWith(currentDayName) ? "bg-blue-600 border-transparent text-white" : "bg-white border-slate-100"}`}
+                  className={`p-5 rounded-2xl border transition-all ${item.day.startsWith(currentDayName) ? "bg-[#2D70FD] border-transparent text-white" : "bg-white border-slate-100"}`}
                 >
                   <div className="flex items-start justify-between mb-2">
                     <span className="text-xl font-black">{item.day}</span>
@@ -465,7 +588,7 @@ const StudentHome = () => {
                 </h3>
                 <button
                   onClick={() => navigate("/student/tasks")}
-                  className="text-[10px] font-black text-blue-600 uppercase tracking-wider hover:underline"
+                  className="text-[10px] font-black text-[#2D70FD] uppercase tracking-wider hover:underline"
                 >
                   View all
                 </button>
@@ -527,27 +650,28 @@ const StudentHome = () => {
                   onClick={() => navigate("/student/schedule")}
                   className="flex-1 p-4 bg-gradient-to-br from-blue-50 to-blue-100/50 border border-blue-200 rounded-xl hover:shadow-md transition-all active:scale-95 text-center"
                 >
-                  <Calendar size={20} className="mx-auto mb-2 text-blue-600" />
-                  <span className="text-[11px] font-black text-blue-700 uppercase tracking-wide">
+                  <Calendar size={20} className="mx-auto mb-2 text-[#2D70FD]" />
+                  <span className="text-[11px] font-black text-[#1F5AE0] uppercase tracking-wide">
                     Timetable
                   </span>
                 </button>
                 <button
                   onClick={() => navigate("/student/tasks")}
-                  className="flex-1 p-4 bg-gradient-to-br from-purple-50 to-purple-100/50 border border-purple-200 rounded-xl hover:shadow-md transition-all active:scale-95 text-center"
+                  className="flex-1 p-4 bg-gradient-to-br from-blue-50 to-blue-100/50 border border-blue-200 rounded-xl hover:shadow-md transition-all active:scale-95 text-center"
                 >
                   <CheckCircle2
                     size={20}
-                    className="mx-auto mb-2 text-purple-600"
+                    className="mx-auto mb-2 text-[#2D70FD]"
                   />
-                  <span className="text-[11px] font-black text-purple-700 uppercase tracking-wide">
+                  <span className="text-[11px] font-black text-[#1F5AE0] uppercase tracking-wide">
                     Tasks
                   </span>
                 </button>
               </div>
             </div>
           </div>
-        </div>
+          </div>
+        </aside>
       </div>
 
       {showAddTask && (
@@ -601,7 +725,7 @@ const StudentHome = () => {
                 </button>
                 <button
                   onClick={addTask}
-                  className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl font-black text-sm hover:bg-blue-700 transition-colors active:scale-95"
+                  className="flex-1 px-4 py-3 bg-[#2D70FD] text-white rounded-xl font-black text-sm hover:bg-[#1F5AE0] transition-colors active:scale-95"
                 >
                   Add Task
                 </button>
@@ -615,4 +739,3 @@ const StudentHome = () => {
 };
 
 export default StudentHome;
-

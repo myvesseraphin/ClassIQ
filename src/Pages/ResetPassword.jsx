@@ -142,7 +142,7 @@ const ResetPassword = () => {
                   type={showPassword ? "text" : "password"}
                   required
                   placeholder="8 characters at least"
-                  className="w-full px-6 py-4 bg-white border border-slate-200 rounded-[25px] text-sm text-slate-800 focus:border-[#1877F2] outline-none transition-all shadow-sm pr-12"
+                  className="w-full px-6 py-4 bg-white border border-slate-200 rounded-[25px] text-sm text-slate-800 focus:border-[#2D70FD] outline-none transition-all shadow-sm pr-12"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                 />
@@ -164,7 +164,7 @@ const ResetPassword = () => {
                 type="password"
                 required
                 placeholder="••••••••"
-                className="w-full px-6 py-4 bg-white border border-slate-200 rounded-[25px] text-sm text-slate-800 focus:border-[#1877F2] outline-none transition-all shadow-sm"
+                className="w-full px-6 py-4 bg-white border border-slate-200 rounded-[25px] text-sm text-slate-800 focus:border-[#2D70FD] outline-none transition-all shadow-sm"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
               />
@@ -173,7 +173,7 @@ const ResetPassword = () => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-[#1877F2] hover:bg-[#1565C0] text-white py-4 rounded-[25px] font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-50 mt-4 uppercase tracking-wider"
+              className="w-full bg-[#2D70FD] hover:bg-[#255EDC] text-white py-4 rounded-[25px] font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-50 mt-4 uppercase tracking-wider"
             >
               {loading ? (
                 <Loader2 className="animate-spin" size={18} />
@@ -189,3 +189,4 @@ const ResetPassword = () => {
 };
 
 export default ResetPassword;
+

@@ -96,9 +96,6 @@ const Help = () => {
         </div>
         <div>
           <h1 className="text-3xl font-black text-slate-900">Help Center</h1>
-          <p className="text-slate-500 font-medium">
-            Guides, shortcuts, and support for your ClassIQ dashboard.
-          </p>
         </div>
       </div>
 

@@ -12,6 +12,7 @@ import {
 import { toast } from "react-toastify";
 import api, { resolveMediaUrl } from "../../api/client";
 import EmptyState from "../../Component/EmptyState";
+import StudentPageSkeleton from "../../Component/StudentPageSkeleton";
 
 const LEVEL_OPTIONS = [
   "Primary 1",
@@ -171,11 +172,7 @@ const LibraryResources = () => {
   };
 
   if (isLoading) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center bg-[#F8FAFC]">
-        <Loader2 className="animate-spin text-blue-600" size={40} />
-      </div>
-    );
+    return <StudentPageSkeleton variant="libraryResources" />;
   }
 
   return (

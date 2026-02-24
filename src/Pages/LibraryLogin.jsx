@@ -106,7 +106,7 @@ const LibraryLogin = () => {
                   placeholder="Email Address"
                   value={formData.email}
                   onChange={handleChange}
-                  className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-4 text-sm font-bold text-slate-400 focus:bg-white focus:border-[#1877F2] focus:outline-none transition-all placeholder:text-slate-300"
+                  className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-4 text-sm font-bold text-slate-400 focus:bg-white focus:border-[#2D70FD] focus:outline-none transition-all placeholder:text-slate-300"
                 />
               </div>
             </div>
@@ -126,7 +126,7 @@ const LibraryLogin = () => {
                   placeholder="••••••••"
                   value={formData.password}
                   onChange={handleChange}
-                  className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-4 text-sm font-bold text-slate-800 focus:bg-white focus:border-[#1877F2] focus:outline-none transition-all placeholder:text-slate-300"
+                  className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-4 text-sm font-bold text-slate-800 focus:bg-white focus:border-[#2D70FD] focus:outline-none transition-all placeholder:text-slate-300"
                 />
               </div>
             </div>
@@ -151,3 +151,4 @@ const LibraryLogin = () => {
 };
 
 export default LibraryLogin;
+

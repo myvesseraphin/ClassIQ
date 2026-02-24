@@ -1,8 +1,9 @@
 import React, { useState } from "react";
-import { Bell, X, Trash, CheckCircle, Loader2 } from "lucide-react";
+import { Bell, X, Trash, CheckCircle } from "lucide-react";
 import { toast } from "react-toastify";
 import api from "../../api/client";
 import EmptyState from "../../Component/EmptyState";
+import StudentPageSkeleton from "../../Component/StudentPageSkeleton";
 
 const Notifications = () => {
   const [items, setItems] = useState([]);
@@ -61,6 +62,10 @@ const Notifications = () => {
     }
   };
 
+  if (isLoading) {
+    return <StudentPageSkeleton variant="notifications" />;
+  }
+
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
       <div className="flex-1 flex flex-col min-w-0 relative">
@@ -91,14 +96,7 @@ const Notifications = () => {
             </div>
 
             <div className="space-y-4">
-              {isLoading ? (
-                <div className="text-center py-20 bg-white rounded-[1.5rem] border border-slate-100">
-                  <Loader2
-                    className="animate-spin text-blue-600 mx-auto mb-4"
-                    size={36}
-                  />
-                </div>
-              ) : items.length === 0 ? (
+              {items.length === 0 ? (
                 <EmptyState />
               ) : (
                 items.map((n) => (

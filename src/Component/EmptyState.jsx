@@ -1,53 +1,26 @@
 import React from "react";
 
 const EmptyState = ({
-  title = "No Data Found",
-  message = "There is no data to show you right now",
+  title = "No records found.",
+  message = "",
 }) => {
   return (
-    <div className="bg-white border border-slate-100 rounded-[2.5rem] px-6 py-16 flex flex-col items-center text-center shadow-sm">
+    <div className="w-full bg-white border border-slate-200 rounded-2xl py-14 px-6 flex flex-col items-center justify-center text-center">
       <svg
-        className="w-40 h-auto mb-6"
-        viewBox="0 0 140 100"
-        fill="none"
+        className="w-14 h-14 text-slate-500"
+        viewBox="0 0 79 74"
+        fill="currentColor"
         xmlns="http://www.w3.org/2000/svg"
         aria-hidden="true"
       >
-        <rect
-          x="8"
-          y="18"
-          width="88"
-          height="64"
-          rx="14"
-          fill="#F8FAFC"
-          stroke="#E2E8F0"
-          strokeWidth="2"
-        />
-        <rect x="20" y="30" width="60" height="10" rx="5" fill="#E2E8F0" />
-        <rect x="20" y="46" width="60" height="10" rx="5" fill="#E2E8F0" />
-        <rect x="20" y="62" width="60" height="10" rx="5" fill="#E2E8F0" />
-        <circle
-          cx="106"
-          cy="36"
-          r="22"
-          fill="#F8FAFC"
-          stroke="#E2E8F0"
-          strokeWidth="2"
-        />
-        <line
-          x1="120"
-          y1="52"
-          x2="132"
-          y2="66"
-          stroke="#E2E8F0"
-          strokeWidth="3"
-          strokeLinecap="round"
-        />
+        <path d="M131 604 c-20 -25 -21 -40 -21 -215 0 -122 4 -197 12 -214 18 -40 62 -47 285 -43 164 2 205 6 217 18 8 8 26 59 41 113 28 105 27 150 -5 167 -10 5 -21 26 -24 45 -12 65 -32 75 -145 75 l-99 0 -32 40 -32 40 -88 0 c-84 0 -90 -1 -109 -26z m187 -36 c47 -58 46 -58 150 -58 101 0 122 -7 122 -42 0 -16 -11 -18 -129 -18 -70 0 -142 -5 -159 -11 -52 -18 -107 -149 -62 -149 5 0 24 25 41 55 l31 55 159 0 c138 0 160 -2 166 -16 6 -17 -22 -155 -39 -187 -8 -16 -27 -17 -221 -15 l-212 3 -3 194 c-2 149 1 196 10 203 7 4 39 8 71 8 47 0 60 -4 75 -22z" transform="translate(0,74) scale(0.1,-0.1)" />
       </svg>
-      <h3 className="text-lg font-black text-slate-600">{title}</h3>
-      <p className="text-sm font-bold text-slate-400 mt-2 max-w-xs">
-        {message}
-      </p>
+      <p className="mt-3 text-sm font-medium text-slate-500">{title}</p>
+      {message ? (
+        <p className="text-xs font-medium text-slate-400 mt-2 max-w-xs">
+          {message}
+        </p>
+      ) : null}
     </div>
   );
 };

@@ -7,6 +7,8 @@ import cookieParser from "cookie-parser";
 import { ensureCsrfCookie, requireCsrf } from "./middleware/csrf.js";
 import authRoutes from "./routes/auth.js";
 import studentRoutes from "./routes/student.js";
+import teacherRoutes from "./routes/teacher.js";
+import adminRoutes from "./routes/admin.js";
 import uploadRoutes from "./routes/uploads.js";
 import libraryRoutes from "./routes/library.js";
 
@@ -30,22 +32,33 @@ app.use(
     crossOriginResourcePolicy: { policy: "cross-origin" },
   }),
 );
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-      if (!isProduction) return callback(null, true);
-      if (allowedOrigins.length === 0) return callback(null, true);
-      if (allowedOrigins.includes(origin)) return callback(null, true);
-      return callback(new Error("Not allowed by CORS"));
-    },
-    credentials: true,
-  }),
-);
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (!isProduction) return callback(null, true);
+    if (allowedOrigins.length === 0) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error("Not allowed by CORS"));
+  },
+  credentials: true,
+  methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token"],
+  exposedHeaders: ["Content-Disposition", "Content-Type"],
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 app.use(ensureCsrfCookie);
-app.use("/uploads", express.static(path.resolve("uploads")));
+app.use(
+  "/uploads",
+  (req, res, next) => {
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    next();
+  },
+  express.static(path.resolve("uploads")),
+);
 
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
@@ -53,6 +66,8 @@ app.get("/api/health", (req, res) => {
 
 app.use("/api/auth", authRoutes);
 app.use("/api/student", requireCsrf, studentRoutes);
+app.use("/api/teacher", requireCsrf, teacherRoutes);
+app.use("/api/admin", requireCsrf, adminRoutes);
 app.use("/api/uploads", requireCsrf, uploadRoutes);
 app.use("/api/library", requireCsrf, libraryRoutes);
 

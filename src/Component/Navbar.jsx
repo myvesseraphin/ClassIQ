@@ -1,14 +1,8 @@
 import React, { useRef, useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Search,
-  Bell,
-  Settings,
-  Command,
-  HelpCircle,
-  Sparkles,
-} from "lucide-react";
+import { Search, Bell, Command, HelpCircle } from "lucide-react";
 import api from "../api/client";
+import useNotificationPoller from "./useNotificationPoller";
 
 const Navbar = () => {
   const inputRef = useRef(null);
@@ -16,6 +10,8 @@ const Navbar = () => {
   const [searchResults, setSearchResults] = useState(null);
   const [isSearching, setIsSearching] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const { unreadCount, hasNew, requestPermission } =
+    useNotificationPoller("student");
 
   useEffect(() => {
     const onKeyDown = (e) => {
@@ -83,6 +79,12 @@ const Navbar = () => {
         route: "/student/assessments",
       },
       {
+        id: "ql-assignments",
+        title: "Assignments",
+        keywords: ["assignment", "assignments", "diagnostic", "end unit"],
+        route: "/student/assignments",
+      },
+      {
         id: "ql-resources",
         title: "Resources",
         keywords: ["resource", "resources", "library", "material", "materials"],
@@ -141,6 +143,7 @@ const Navbar = () => {
     () => [
       { key: "courses", label: "Courses" },
       { key: "tasks", label: "Tasks" },
+      { key: "assignments", label: "Assignments" },
       { key: "assessments", label: "Assessments" },
       { key: "exercises", label: "Exercises" },
       { key: "resources", label: "Resources" },
@@ -173,8 +176,8 @@ const Navbar = () => {
   };
 
   return (
-    <div className="h-20 bg-white border-b border-slate-100 sticky top-0 z-30 px-8 flex items-center justify-between">
-      <div className="flex-1 relative max-w-xl mx-12 group">
+    <div className="h-16 lg:h-20 bg-white border-b border-slate-100 sticky top-0 z-30 px-4 md:px-5 lg:px-8 flex items-center justify-between gap-3 md:gap-4">
+      <div className="flex-1 relative max-w-full md:max-w-lg lg:max-w-xl mx-1 md:mx-4 lg:mx-10 group min-w-0">
         <Search
           className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-[#2D70FD] transition-colors"
           size={18}
@@ -199,9 +202,9 @@ const Navbar = () => {
               handleSelect(firstResult);
             }
           }}
-          className="w-full bg-white border border-slate-100 py-3 pl-12 pr-16 rounded-2xl text-sm font-bold placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-[#2D70FD]/30 transition-all shadow-sm"
+          className="w-full bg-white border border-slate-100 py-2.5 md:py-3 pl-11 md:pl-12 pr-4 md:pr-14 rounded-2xl text-xs md:text-sm font-bold placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-[#2D70FD]/30 transition-all shadow-sm"
         />
-        <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-1 px-1.5 py-1 bg-slate-50 border border-slate-100 rounded-lg pointer-events-none">
+        <div className="absolute right-4 top-1/2 -translate-y-1/2 hidden lg:flex items-center gap-1 px-1.5 py-1 bg-slate-50 border border-slate-100 rounded-lg pointer-events-none">
           <Command size={10} className="text-slate-300" strokeWidth={3} />
           <span className="text-[10px] font-black text-slate-300">K</span>
         </div>
@@ -279,29 +282,30 @@ const Navbar = () => {
           </div>
         )}
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 md:gap-3 shrink-0">
         <button
           onClick={() => navigate("/student/help")}
-          className="p-3 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-2xl transition-all"
+          className="p-2.5 md:p-3 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-2xl transition-all"
         >
           <HelpCircle size={22} />
         </button>
 
         <button
-          onClick={() => navigate("/student/notifications")}
-          className="p-3 bg-white border border-slate-100 rounded-2xl text-slate-400 hover:text-[#2D70FD] hover:border-blue-100 shadow-sm relative transition-all group"
+          onClick={() => {
+            requestPermission();
+            navigate("/student/notifications");
+          }}
+          className="p-2.5 md:p-3 bg-white border border-slate-100 rounded-2xl text-slate-400 hover:text-[#2D70FD] hover:border-blue-100 shadow-sm relative transition-all group"
         >
           <Bell size={20} className="group-hover:shake" />
-          <span className="absolute top-3 right-3 w-2 h-2 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>
-        </button>
-        <button
-          onClick={() => navigate("/student/profile")}
-          className="p-3 text-slate-400 hover:text-slate-900 hover:bg-slate-50 rounded-2xl transition-all group"
-        >
-          <Settings
-            size={22}
-            className="group-hover:rotate-45 transition-transform duration-500"
-          />
+          {unreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center border-2 border-white">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
+          {hasNew && (
+            <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-400/70 animate-ping" />
+          )}
         </button>
       </div>
     </div>

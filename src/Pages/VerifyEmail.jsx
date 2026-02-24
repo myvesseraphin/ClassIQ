@@ -170,7 +170,7 @@ const VerifyEmail = () => {
                   onPaste={handlePaste}
                   onChange={(e) => handleChange(e.target, index)}
                   onKeyDown={(e) => handleKeyDown(e, index)}
-                  className="w-12 h-12 border-2 border-slate-100 rounded-full text-center text-lg font-bold text-slate-800 focus:border-[#1877F2] focus:outline-none transition-all bg-white"
+                  className="w-12 h-12 border-2 border-slate-100 rounded-full text-center text-lg font-bold text-slate-800 focus:border-[#2D70FD] focus:outline-none transition-all bg-white"
                 />
               ))}
             </div>
@@ -189,7 +189,7 @@ const VerifyEmail = () => {
             <button
               type="submit"
               disabled={loading || otp.join("").length !== 6}
-              className="w-full bg-[#1877F2] text-white py-4 rounded-[25px] font-bold shadow-lg shadow-blue-100 flex items-center justify-center gap-2 transition-transform active:scale-95 disabled:opacity-50 uppercase tracking-wider"
+              className="w-full bg-[#2D70FD] text-white py-4 rounded-[25px] font-bold shadow-lg shadow-blue-100 flex items-center justify-center gap-2 transition-transform active:scale-95 disabled:opacity-50 uppercase tracking-wider"
             >
               {loading ? (
                 <Loader2 className="animate-spin" size={18} />
@@ -205,3 +205,4 @@ const VerifyEmail = () => {
 };
 
 export default VerifyEmail;
+

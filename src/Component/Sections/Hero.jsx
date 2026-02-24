@@ -12,7 +12,7 @@ const Hero = () => {
         <div className="flex-1 text-left">
           <h1 className="text-6xl md:text-7xl font-black text-slate-900 leading-[1.1] tracking-tighter mb-8">
             Data-Driven. <br />
-            <span className="text-[#1877F2]">Success </span>
+            <span className="text-[#2D70FD]">Success </span>
           </h1>
           <p className="max-w-md text-lg text-slate-500 font-medium leading-relaxed mb-10">
             Everything you need to transform school data into actionable
@@ -187,3 +187,4 @@ const Hero = () => {
 };
 
 export default Hero;
+

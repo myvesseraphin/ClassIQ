@@ -6,6 +6,8 @@ dotenv.config();
 const JWT_SECRET = process.env.JWT_SECRET || "dev_secret_change_me";
 
 export const requireAuth = (req, res, next) => {
+  if (req.method === "OPTIONS") return next();
+
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
   const cookieToken = req.cookies?.classiq_token;
