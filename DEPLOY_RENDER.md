@@ -92,6 +92,8 @@ In Render dashboard:
 |---|---|---|
 | `/*` | `/index.html` | `Rewrite` |
 
+Without this rewrite, routes like `/login` and `/student` will return `404 Not Found` on Render.
+
 6. Click `Create Static Site`.
 
 Current frontend URL:
@@ -119,6 +121,19 @@ Run these checks:
 1. Backend health: `https://YOUR_API_URL/api/health`
 2. Frontend loads: `https://YOUR_FRONTEND_URL`
 3. Login/register calls succeed from frontend without CORS errors.
+
+## Troubleshooting: Blank Not Found Page
+
+If login redirects to a blank `Not Found` page:
+
+1. Open frontend service (`classiqrwanda`) in Render.
+2. Go to `Settings` -> `Redirects/Rewrites`.
+3. Add:
+   - Source: `/*`
+   - Destination: `/index.html`
+   - Action: `Rewrite`
+4. Save and redeploy frontend.
+5. Hard refresh browser and test `https://classiqrwanda.onrender.com/login`.
 
 ## Blueprint Option (Fastest)
 
