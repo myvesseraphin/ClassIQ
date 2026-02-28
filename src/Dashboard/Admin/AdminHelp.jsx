@@ -30,16 +30,23 @@ const AdminHelp = () => {
     },
     {
       id: "qa-resources",
-      title: "Audit Resources",
-      desc: "Preview uploads, search by subject, and delete files.",
+      title: "Audit Curriculum Resources",
+      desc: "Review linked class-subject-unit-topic files and usage stats.",
       route: "/admin/resources",
       icon: BookOpen,
     },
     {
+      id: "qa-curriculum",
+      title: "Curriculum Oversight",
+      desc: "Inspect term > unit > topic completion and delayed units.",
+      route: "/admin/curriculum",
+      icon: Shield,
+    },
+    {
       id: "qa-settings",
-      title: "Update Lesson Tracker",
+      title: "Academic Management",
       desc: "Set unit, topic, pages, and teacher per class + subject.",
-      route: "/admin/settings",
+      route: "/admin/academic-management",
       icon: Shield,
     },
     {
@@ -68,7 +75,7 @@ const AdminHelp = () => {
       id: "faq-3",
       question: "Can I delete a resource from storage?",
       answer:
-        "Yes. In Resources, delete will remove the database record and attempt to remove the file from storage if configured.",
+        "Yes. In Curriculum Resources, delete will remove the database record and attempt to remove the file from storage if configured.",
     },
     {
       id: "faq-4",

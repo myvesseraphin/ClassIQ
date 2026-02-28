@@ -15,6 +15,7 @@ const AdminReports = () => {
   const [dashboard, setDashboard] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
+  const [activeCategory, setActiveCategory] = useState("academic");
 
   useEffect(() => {
     let active = true;
@@ -81,6 +82,10 @@ const AdminReports = () => {
     }
   };
 
+  const exportPdf = () => {
+    window.print();
+  };
+
   if (isLoading) {
     return (
       <div className="flex min-h-[55vh] w-full items-center justify-center bg-slate-50 rounded-[2rem]">
@@ -98,6 +103,38 @@ const AdminReports = () => {
   const recentUsers = Array.isArray(dashboard.recentUsers)
     ? dashboard.recentUsers
     : [];
+  const reportCategories = [
+    { id: "academic", label: "Academic Reports" },
+    { id: "curriculum", label: "Curriculum Reports" },
+    { id: "teacher", label: "Teacher Activity Reports" },
+    { id: "performance", label: "Performance Reports" },
+  ];
+
+  const categorizedItems = {
+    academic: summary.map((item) => ({
+      id: item.label,
+      title: item.label,
+      subtitle: `Current value: ${item.current}`,
+    })),
+    curriculum: requests.slice(0, 8).map((item) => ({
+      id: item.id,
+      title: item.fullName || item.email || "Curriculum Update",
+      subtitle: `${item.school || "--"} | ${item.status || "pending"}`,
+    })),
+    teacher: recentUsers
+      .filter((item) => String(item.role || "").toLowerCase() === "teacher")
+      .slice(0, 8)
+      .map((item) => ({
+        id: item.id,
+        title: item.name || item.email,
+        subtitle: `${item.email} | ${item.createdAt || "--"}`,
+      })),
+    performance: (dashboard.weakSubjects || []).slice(0, 8).map((item, index) => ({
+      id: `${item.subject || item.name}-${index}`,
+      title: item.subject || item.name || "Subject",
+      subtitle: `Average score: ${Number(item.score) || 0}%`,
+    })),
+  };
 
   return (
     <div className="w-full h-full animate-in fade-in duration-500 font-sans">
@@ -113,10 +150,10 @@ const AdminReports = () => {
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => window.print()}
+              onClick={exportPdf}
               className="px-5 py-3 rounded-2xl bg-white border border-slate-200 text-slate-700 font-black text-xs uppercase tracking-widest hover:bg-slate-50 transition-colors"
             >
-              Print
+              Export PDF
             </button>
             <button
               onClick={exportSnapshot}
@@ -124,7 +161,7 @@ const AdminReports = () => {
               className="px-5 py-3 rounded-2xl bg-[#2D70FD] text-white font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-100 disabled:opacity-60"
             >
               <Download size={16} className="inline -mt-0.5 mr-2" />
-              {isExporting ? "Exporting..." : "Export Snapshot"}
+              {isExporting ? "Exporting..." : "Export JSON"}
             </button>
           </div>
         </div>
@@ -210,6 +247,44 @@ const AdminReports = () => {
           </div>
 
           <div className="lg:col-span-5 space-y-8">
+            <div className="bg-white border border-slate-100 rounded-[2.5rem] p-6 shadow-sm">
+              <h3 className="text-lg font-black text-slate-800 mb-4">
+                Report Categories
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {reportCategories.map((category) => (
+                  <button
+                    key={category.id}
+                    onClick={() => setActiveCategory(category.id)}
+                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
+                      activeCategory === category.id
+                        ? "bg-[#2D70FD] text-white"
+                        : "bg-white border border-slate-200 text-slate-500"
+                    }`}
+                  >
+                    {category.label}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-4 space-y-2 max-h-56 overflow-y-auto">
+                {(categorizedItems[activeCategory] || []).length === 0 ? (
+                  <p className="text-sm text-slate-400">No items in this category.</p>
+                ) : (
+                  (categorizedItems[activeCategory] || []).map((item) => (
+                    <div
+                      key={item.id}
+                      className="p-3 rounded-xl bg-slate-50 border border-slate-100"
+                    >
+                      <p className="text-sm font-black text-slate-800">{item.title}</p>
+                      <p className="text-xs font-bold text-slate-400 mt-1">
+                        {item.subtitle}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
             <div className="bg-white border border-slate-100 rounded-[2.5rem] p-8 shadow-sm">
               <h3 className="text-lg font-black text-slate-800 mb-6">
                 Latest Access Requests

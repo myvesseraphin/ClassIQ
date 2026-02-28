@@ -27,8 +27,12 @@ const AdminUsers = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [roleFilter, setRoleFilter] = useState("");
   const [verificationFilter, setVerificationFilter] = useState("all");
+  const [classFilter, setClassFilter] = useState("");
+  const [subjectFilter, setSubjectFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [users, setUsers] = useState([]);
+  const [classes, setClasses] = useState([]);
+  const [subjects, setSubjects] = useState([]);
   const [roleCounts, setRoleCounts] = useState({
     student: 0,
     teacher: 0,
@@ -48,6 +52,22 @@ const AdminUsers = () => {
 
   useEffect(() => {
     let active = true;
+    Promise.all([api.get("/admin/classes"), api.get("/admin/subjects")])
+      .then(([classRes, subjectRes]) => {
+        if (!active) return;
+        setClasses(Array.isArray(classRes?.data?.classes) ? classRes.data.classes : []);
+        setSubjects(
+          Array.isArray(subjectRes?.data?.subjects) ? subjectRes.data.subjects : [],
+        );
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
     setIsLoading(true);
 
     const timer = setTimeout(async () => {
@@ -57,6 +77,8 @@ const AdminUsers = () => {
           params: {
             q: searchQuery.trim() || undefined,
             role: roleFilter || undefined,
+            classId: classFilter || undefined,
+            subjectId: subjectFilter || undefined,
             limit: pageSize,
             offset,
           },
@@ -87,7 +109,7 @@ const AdminUsers = () => {
       active = false;
       clearTimeout(timer);
     };
-  }, [page, pageSize, roleFilter, searchQuery]);
+  }, [page, pageSize, roleFilter, searchQuery, classFilter, subjectFilter]);
 
   useEffect(() => {
     if (!requestedUserId || users.length === 0) return;
@@ -101,12 +123,33 @@ const AdminUsers = () => {
 
   const filtered = useMemo(() => {
     if (verificationFilter === "all") return users;
-    return users.filter((u) =>
-      verificationFilter === "verified"
-        ? Boolean(u.emailVerified)
-        : !Boolean(u.emailVerified),
-    );
-  }, [users, verificationFilter]);
+    return users
+      .filter((u) =>
+        verificationFilter === "verified"
+          ? Boolean(u.emailVerified)
+          : !Boolean(u.emailVerified),
+      )
+      .filter((u) => {
+        if (!classFilter) return true;
+        if (String(u.role || "").toLowerCase() !== "student") return true;
+        return (
+          String(u.classId || "") === String(classFilter) ||
+          String(u.className || "").toLowerCase() ===
+            String(
+              classes.find((c) => String(c.id) === String(classFilter))?.className || "",
+            ).toLowerCase()
+        );
+      })
+      .filter((u) => {
+        if (!subjectFilter) return true;
+        if (String(u.role || "").toLowerCase() !== "teacher") return true;
+        const teacherSubjects = Array.isArray(u.subjects) ? u.subjects : [];
+        return (
+          teacherSubjects.some((s) => String(s.id || s) === String(subjectFilter)) ||
+          String(u.subjectId || "") === String(subjectFilter)
+        );
+      });
+  }, [users, verificationFilter, classFilter, subjectFilter, classes]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const canPrev = page > 1;
@@ -229,7 +272,37 @@ const AdminUsers = () => {
             ))}
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+            <select
+              value={classFilter}
+              onChange={(e) => {
+                setClassFilter(e.target.value);
+                setPage(1);
+              }}
+              className="px-3 py-2 rounded-xl text-xs font-black uppercase tracking-widest bg-white border border-slate-200 text-slate-600"
+            >
+              <option value="">All Classes</option>
+              {classes.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.label || `${item.gradeLevel || ""} ${item.className || ""}`.trim()}
+                </option>
+              ))}
+            </select>
+            <select
+              value={subjectFilter}
+              onChange={(e) => {
+                setSubjectFilter(e.target.value);
+                setPage(1);
+              }}
+              className="px-3 py-2 rounded-xl text-xs font-black uppercase tracking-widest bg-white border border-slate-200 text-slate-600"
+            >
+              <option value="">All Subjects</option>
+              {subjects.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
             {[
               { label: "All", value: "all" },
               { label: "Verified", value: "verified" },
@@ -265,6 +338,9 @@ const AdminUsers = () => {
                   </th>
                   <th className="px-8 py-5 text-xs font-black text-slate-400 tracking-tight uppercase">
                     Verified
+                  </th>
+                  <th className="px-8 py-5 text-xs font-black text-slate-400 tracking-tight uppercase">
+                    Last Login
                   </th>
                   <th className="px-8 py-5 text-xs font-black text-slate-400 tracking-tight uppercase">
                     Created
@@ -313,12 +389,15 @@ const AdminUsers = () => {
                       <span
                         className={`px-3 py-1 rounded-lg font-black text-[10px] uppercase tracking-widest ${
                           user.emailVerified
-                            ? "bg-emerald-50 text-emerald-600"
-                            : "bg-slate-100 text-slate-500"
+                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                            : "bg-rose-50 text-rose-700 border border-rose-200"
                         }`}
                       >
                         {user.emailVerified ? "Verified" : "Unverified"}
                       </span>
+                    </td>
+                    <td className="px-8 py-6 text-sm font-bold text-slate-500">
+                      {user.lastLogin || "--"}
                     </td>
                     <td className="px-8 py-6 text-sm font-bold text-slate-500">
                       {user.createdAt || "--"}

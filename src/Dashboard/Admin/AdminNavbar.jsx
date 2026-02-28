@@ -78,9 +78,24 @@ const AdminNavbar = () => {
       { id: "ql-dashboard", title: "Dashboard", route: "/admin" },
       { id: "ql-users", title: "Users", route: "/admin/users" },
       { id: "ql-requests", title: "Access Requests", route: "/admin/requests" },
-      { id: "ql-resources", title: "Resources", route: "/admin/resources" },
+      { id: "ql-curriculum", title: "Curriculum Oversight", route: "/admin/curriculum" },
+      {
+        id: "ql-teachers",
+        title: "Teacher Analytics",
+        route: "/admin/teachers-analytics",
+      },
+      {
+        id: "ql-resources",
+        title: "Curriculum Resources",
+        route: "/admin/resources",
+      },
       { id: "ql-reports", title: "Reports", route: "/admin/reports" },
-      { id: "ql-settings", title: "Settings", route: "/admin/settings" },
+      {
+        id: "ql-management",
+        title: "Academic Management",
+        route: "/admin/academic-management",
+      },
+      { id: "ql-audit", title: "Audit Logs", route: "/admin/audit-logs" },
       { id: "ql-profile", title: "Profile", route: "/admin/profile" },
       { id: "ql-help", title: "Help Center", route: "/admin/help" },
     ],
@@ -257,4 +272,3 @@ const AdminNavbar = () => {
 };
 
 export default AdminNavbar;
-
