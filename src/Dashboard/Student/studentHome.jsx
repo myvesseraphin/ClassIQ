@@ -268,14 +268,6 @@ const StudentHome = () => {
                 className="w-full bg-white border-2 border-slate-100 py-3 pl-11 pr-4 rounded-2xl text-sm font-bold text-slate-700 outline-none focus:border-[#2D70FD] shadow-sm transition-all"
               />
             </div>
-            <button
-              onClick={() => navigate("/student/notifications")}
-              className="p-3 bg-white border-2 border-slate-100 rounded-2xl text-slate-400 hover:text-[#2D70FD] shadow-sm relative transition-all active:scale-90 self-end sm:self-auto"
-              aria-label="Open notifications"
-            >
-              <Bell size={20} />
-              <span className="absolute top-2 right-2 w-2 h-2 bg-[#2D70FD] rounded-full border-2 border-white"></span>
-            </button>
           </div>
 
           <div className="space-y-1">
