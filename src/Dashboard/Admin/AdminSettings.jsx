@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   CheckCircle2,
+  Lock,
   Loader2,
   Pencil,
   RefreshCcw,
@@ -64,6 +65,14 @@ const AdminSettings = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingSystem, setIsSavingSystem] = useState(false);
+  const [systemSettings, setSystemSettings] = useState({
+    academicYear: "",
+    terms: "Term 1, Term 2, Term 3",
+    gradingScale: "A:80-100, B:70-79, C:60-69, D:50-59, F:0-49",
+    rolePermissions:
+      "Admin: full access; Teacher: class tools + analytics; Student: learning tools",
+  });
 
   const selectedClass = classes.find((c) => c.id === selectedClassId) || null;
   const selectedSubject = subjects.find((s) => s.id === selectedSubjectId) || null;
@@ -121,6 +130,13 @@ const AdminSettings = () => {
         const { data } = await api.get("/admin/lesson-progress");
         if (!active) return;
         setLessons(Array.isArray(data?.lessons) ? data.lessons : []);
+        const incomingSystem = data?.systemSettings || {};
+        setSystemSettings((prev) => ({
+          academicYear: incomingSystem.academicYear || prev.academicYear,
+          terms: incomingSystem.terms || prev.terms,
+          gradingScale: incomingSystem.gradingScale || prev.gradingScale,
+          rolePermissions: incomingSystem.rolePermissions || prev.rolePermissions,
+        }));
       } catch (err) {
         console.error("Failed to load lesson progress", err);
         toast.error("Failed to load lesson progress.");
@@ -269,6 +285,26 @@ const AdminSettings = () => {
     }
   };
 
+  const saveSystemSettings = async () => {
+    setIsSavingSystem(true);
+    try {
+      await api.put("/admin/system-settings", {
+        academicYear: String(systemSettings.academicYear || "").trim(),
+        terms: String(systemSettings.terms || "").trim(),
+        gradingScale: String(systemSettings.gradingScale || "").trim(),
+        rolePermissions: String(systemSettings.rolePermissions || "").trim(),
+      });
+      toast.success("System settings saved.");
+    } catch (err) {
+      console.error("Failed to save system settings", err);
+      toast.error(
+        err?.response?.data?.error || "Failed to save system settings.",
+      );
+    } finally {
+      setIsSavingSystem(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex min-h-[55vh] w-full items-center justify-center bg-slate-50 rounded-[2rem]">
@@ -283,10 +319,10 @@ const AdminSettings = () => {
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
           <div className="space-y-1">
             <h1 className="text-4xl font-black text-slate-900 tracking-tight">
-              Settings
+              Academic Management
             </h1>
             <p className="text-sm font-bold text-slate-400">
-              Lesson tracker per class and subject.
+              Curriculum lesson tracker and system-level academic configuration.
             </p>
           </div>
 
@@ -488,6 +524,60 @@ const AdminSettings = () => {
               <CheckCircle2 size={16} />
               Lesson tracker ready
             </div>
+          </div>
+        </div>
+
+        <div className="bg-white border border-slate-100 rounded-[2.5rem] p-8 shadow-sm">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+            <div>
+              <h2 className="text-xl font-black text-slate-900">System Settings</h2>
+              <p className="text-sm font-bold text-slate-400 mt-1">
+                Academic year setup, terms, grading scale, and role permissions.
+              </p>
+            </div>
+            <button
+              onClick={saveSystemSettings}
+              disabled={isSavingSystem}
+              className="px-5 py-3 rounded-2xl bg-slate-900 text-white font-black text-xs uppercase tracking-widest disabled:opacity-60"
+            >
+              <Lock size={14} className="inline -mt-0.5 mr-2" />
+              {isSavingSystem ? "Saving..." : "Save System Settings"}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Field
+              label="Academic Year Setup"
+              value={systemSettings.academicYear}
+              onChange={(v) =>
+                setSystemSettings((prev) => ({ ...prev, academicYear: v }))
+              }
+              placeholder="Example: 2026 - 2027"
+            />
+            <Field
+              label="Terms"
+              value={systemSettings.terms}
+              onChange={(v) =>
+                setSystemSettings((prev) => ({ ...prev, terms: v }))
+              }
+              placeholder="Example: Term 1, Term 2, Term 3"
+            />
+            <Field
+              label="Grading Scale"
+              value={systemSettings.gradingScale}
+              onChange={(v) =>
+                setSystemSettings((prev) => ({ ...prev, gradingScale: v }))
+              }
+              placeholder="Example: A:80-100, B:70-79..."
+            />
+            <Field
+              label="Role Permissions"
+              value={systemSettings.rolePermissions}
+              onChange={(v) =>
+                setSystemSettings((prev) => ({ ...prev, rolePermissions: v }))
+              }
+              placeholder="Define role permissions"
+            />
           </div>
         </div>
 

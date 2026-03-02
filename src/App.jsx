@@ -50,6 +50,9 @@ import AdminReports from "./Dashboard/Admin/AdminReports";
 import AdminSettings from "./Dashboard/Admin/AdminSettings";
 import AdminProfile from "./Dashboard/Admin/AdminProfile";
 import AdminHelp from "./Dashboard/Admin/AdminHelp";
+import AdminCurriculum from "./Dashboard/Admin/AdminCurriculum";
+import AdminTeachersAnalytics from "./Dashboard/Admin/AdminTeachersAnalytics";
+import AdminAuditLogs from "./Dashboard/Admin/AdminAuditLogs";
 
 const Preloader = () => (
   <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-white">
@@ -191,9 +194,19 @@ function App() {
           <Route index element={<AdminHome />} />
           <Route path="users" element={<AdminUsers />} />
           <Route path="requests" element={<AdminRequests />} />
+          <Route path="curriculum" element={<AdminCurriculum />} />
+          <Route
+            path="teachers-analytics"
+            element={<AdminTeachersAnalytics />}
+          />
           <Route path="resources" element={<AdminResources />} />
           <Route path="reports" element={<AdminReports />} />
-          <Route path="settings" element={<AdminSettings />} />
+          <Route
+            path="settings"
+            element={<Navigate to="/admin/academic-management" replace />}
+          />
+          <Route path="academic-management" element={<AdminSettings />} />
+          <Route path="audit-logs" element={<AdminAuditLogs />} />
           <Route path="profile" element={<AdminProfile />} />
           <Route path="help" element={<AdminHelp />} />
         </Route>

@@ -9,6 +9,9 @@ import {
   Shield,
   User,
   LogOut,
+  ClipboardList,
+  Activity,
+  ScrollText,
 } from "lucide-react";
 import api, { resolveMediaUrl } from "../../api/client";
 import logo from "../../assets/logo.png";
@@ -74,8 +77,18 @@ const AdminSidebar = () => {
       path: "/admin/requests",
     },
     {
+      icon: <ClipboardList size={22} strokeWidth={2.5} />,
+      label: "Curriculum Oversight",
+      path: "/admin/curriculum",
+    },
+    {
+      icon: <Activity size={22} strokeWidth={2.5} />,
+      label: "Teacher Analytics",
+      path: "/admin/teachers-analytics",
+    },
+    {
       icon: <BookOpen size={22} strokeWidth={2.5} />,
-      label: "Resources",
+      label: "Curriculum Resources",
       path: "/admin/resources",
     },
     {
@@ -85,8 +98,13 @@ const AdminSidebar = () => {
     },
     {
       icon: <Shield size={22} strokeWidth={2.5} />,
-      label: "Settings",
-      path: "/admin/settings",
+      label: "Academic Management",
+      path: "/admin/academic-management",
+    },
+    {
+      icon: <ScrollText size={22} strokeWidth={2.5} />,
+      label: "Audit Logs",
+      path: "/admin/audit-logs",
     },
   ];
 

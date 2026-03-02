@@ -23,6 +23,9 @@ const AdminResources = () => {
   const [viewMode, setViewMode] = useState("grid");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSubject, setSelectedSubject] = useState("All");
+  const [selectedClass, setSelectedClass] = useState("All");
+  const [selectedUnit, setSelectedUnit] = useState("All");
+  const [selectedTopic, setSelectedTopic] = useState("All");
   const [resources, setResources] = useState([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -69,6 +72,23 @@ const AdminResources = () => {
     return ["All", ...derived];
   }, [resources]);
 
+  const classes = useMemo(() => {
+    const derived = Array.from(
+      new Set(resources.map((r) => r.className || r.class).filter(Boolean)),
+    );
+    return ["All", ...derived];
+  }, [resources]);
+
+  const units = useMemo(() => {
+    const derived = Array.from(new Set(resources.map((r) => r.unit).filter(Boolean)));
+    return ["All", ...derived];
+  }, [resources]);
+
+  const topics = useMemo(() => {
+    const derived = Array.from(new Set(resources.map((r) => r.topic).filter(Boolean)));
+    return ["All", ...derived];
+  }, [resources]);
+
   useEffect(() => {
     let active = true;
     setIsLoading(true);
@@ -79,6 +99,9 @@ const AdminResources = () => {
         const { data } = await api.get("/admin/resources", {
           params: {
             subject: selectedSubject === "All" ? undefined : selectedSubject,
+            className: selectedClass === "All" ? undefined : selectedClass,
+            unit: selectedUnit === "All" ? undefined : selectedUnit,
+            topic: selectedTopic === "All" ? undefined : selectedTopic,
             q: searchQuery.trim() || undefined,
             limit: pageSize,
             offset,
@@ -105,7 +128,7 @@ const AdminResources = () => {
       active = false;
       clearTimeout(timer);
     };
-  }, [page, pageSize, searchQuery, selectedSubject]);
+  }, [page, pageSize, searchQuery, selectedSubject, selectedClass, selectedUnit, selectedTopic]);
 
   useEffect(() => {
     if (!requestedResourceId || resources.length === 0) return;
@@ -178,7 +201,7 @@ const AdminResources = () => {
       <div className="max-w-7xl mx-auto space-y-10">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <h1 className="text-4xl font-black text-slate-900 tracking-tight">
-            Resources
+            Curriculum Resources
           </h1>
           <div className="flex items-center gap-3 bg-white border-2 border-slate-100 p-1.5 rounded-2xl shadow-sm">
             <button
@@ -205,7 +228,7 @@ const AdminResources = () => {
         </div>
 
         <div className="flex flex-col lg:flex-row gap-4 items-center justify-between">
-          <div className="flex items-center gap-2 overflow-x-auto w-full lg:w-auto pb-2 lg:pb-0 scrollbar-hide">
+          <div className="flex flex-wrap items-center gap-2 overflow-x-auto w-full lg:w-auto pb-2 lg:pb-0 scrollbar-hide">
             <div className="p-2.5 bg-white border border-slate-200 rounded-xl text-slate-400">
               <Filter size={18} />
             </div>
@@ -225,6 +248,48 @@ const AdminResources = () => {
                 {sub}
               </button>
             ))}
+            <select
+              value={selectedClass}
+              onChange={(e) => {
+                setSelectedClass(e.target.value);
+                setPage(1);
+              }}
+              className="px-4 py-2.5 rounded-xl font-bold text-sm bg-white text-slate-500 border border-slate-200"
+            >
+              {classes.map((item) => (
+                <option key={item} value={item}>
+                  {item === "All" ? "All Classes" : item}
+                </option>
+              ))}
+            </select>
+            <select
+              value={selectedUnit}
+              onChange={(e) => {
+                setSelectedUnit(e.target.value);
+                setPage(1);
+              }}
+              className="px-4 py-2.5 rounded-xl font-bold text-sm bg-white text-slate-500 border border-slate-200"
+            >
+              {units.map((item) => (
+                <option key={item} value={item}>
+                  {item === "All" ? "All Units" : item}
+                </option>
+              ))}
+            </select>
+            <select
+              value={selectedTopic}
+              onChange={(e) => {
+                setSelectedTopic(e.target.value);
+                setPage(1);
+              }}
+              className="px-4 py-2.5 rounded-xl font-bold text-sm bg-white text-slate-500 border border-slate-200"
+            >
+              {topics.map((item) => (
+                <option key={item} value={item}>
+                  {item === "All" ? "All Topics" : item}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="relative w-full lg:w-96 group">
@@ -266,10 +331,16 @@ const AdminResources = () => {
                   {resource.name}
                 </h3>
                 <p className="text-sm font-bold text-slate-400 mb-1">
-                  {resource.subject}
+                  {resource.subject || "Subject not set"}
+                </p>
+                <p className="text-xs font-bold text-slate-500 mb-1">
+                  {resource.className || resource.class || "--"} | {resource.unit || "--"} |{" "}
+                  {resource.topic || "--"}
                 </p>
                 <p className="text-xs font-bold text-slate-400 mb-8">
-                  Uploaded by {resource.uploadedBy || "User"}
+                  Uploaded by {resource.uploadedBy || "User"} | Downloads:{" "}
+                  {Number(resource.downloads) || 0} | Classes used:{" "}
+                  {Number(resource.classesUsedIn) || 0}
                 </p>
                 <div className="grid grid-cols-2 gap-3">
                   <button
@@ -300,7 +371,10 @@ const AdminResources = () => {
                     Subject
                   </th>
                   <th className="px-8 py-5 text-xs font-black text-slate-400 tracking-tight uppercase">
-                    Uploaded By
+                    Curriculum Link
+                  </th>
+                  <th className="px-8 py-5 text-xs font-black text-slate-400 tracking-tight uppercase">
+                    Usage
                   </th>
                   <th className="px-8 py-5 text-xs font-black text-slate-400 tracking-tight uppercase">
                     Date
@@ -333,7 +407,10 @@ const AdminResources = () => {
                       {resource.subject || "--"}
                     </td>
                     <td className="px-8 py-6 text-sm font-bold text-slate-500">
-                      {resource.uploadedBy || "--"}
+                      {(resource.className || resource.class || "--") + " | " + (resource.unit || "--") + " | " + (resource.topic || "--")}
+                    </td>
+                    <td className="px-8 py-6 text-sm font-bold text-slate-500">
+                      {`Downloads: ${Number(resource.downloads) || 0} | Classes: ${Number(resource.classesUsedIn) || 0}`}
                     </td>
                     <td className="px-8 py-6 text-sm font-bold text-slate-400">
                       {resource.date || "--"}
@@ -414,6 +491,17 @@ const AdminResources = () => {
                     {selectedResource.subject}
                     {selectedResource.size ? ` | ${selectedResource.size}` : ""}
                     {selectedResource.type ? ` | ${selectedResource.type}` : ""}
+                  </p>
+                  <p className="text-xs font-bold text-slate-500 mt-1 truncate">
+                    {(selectedResource.className || selectedResource.class || "--") +
+                      " | " +
+                      (selectedResource.unit || "--") +
+                      " | " +
+                      (selectedResource.topic || "--")}
+                  </p>
+                  <p className="text-xs font-bold text-slate-400 mt-1 truncate">
+                    Downloads: {Number(selectedResource.downloads) || 0} | Classes used:{" "}
+                    {Number(selectedResource.classesUsedIn) || 0}
                   </p>
                 </div>
               </div>
