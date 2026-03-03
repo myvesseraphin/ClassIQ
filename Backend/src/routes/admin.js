@@ -23,6 +23,19 @@ const formatShortDate = (value) => {
   }).format(date);
 };
 
+const formatDateTime = (value) => {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+};
+
 const formatPercent = (value) => {
   if (value === null || value === undefined) return null;
   return `${value}%`;
@@ -73,6 +86,9 @@ const deleteFromSupabase = async (bucket, filePath) => {
 
 const ALLOWED_ROLES = new Set(["student", "teacher", "admin"]);
 const ALLOWED_REQUEST_STATUSES = new Set(["pending", "approved", "rejected"]);
+const AUDIT_ACTION_FILTER = /^[a-z0-9_.:-]{2,80}$/i;
+
+const clampPercent = (value) => clamp(Math.round(Number(value) || 0), 0, 100);
 
 router.get("/search", async (req, res, next) => {
   try {
@@ -701,6 +717,422 @@ router.get("/teachers", async (req, res, next) => {
           "Teacher",
         department: row.department || null,
       })),
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/curriculum", async (req, res, next) => {
+  try {
+    const classId = String(req.query.classId || "").trim();
+    const subjectId = String(req.query.subjectId || "").trim();
+    const teacherId = String(req.query.teacherId || "").trim();
+
+    if (classId && !isUuid(classId)) {
+      return res.status(400).json({ error: "Invalid class id." });
+    }
+    if (subjectId && !isUuid(subjectId)) {
+      return res.status(400).json({ error: "Invalid subject id." });
+    }
+    if (teacherId && !isUuid(teacherId)) {
+      return res.status(400).json({ error: "Invalid teacher id." });
+    }
+
+    const [lessonResult, progressResult, assessmentResult] = await Promise.all([
+      query(
+        `SELECT l.id,
+                l.class_id AS "classId",
+                l.subject_id AS "subjectId",
+                l.teacher_id AS "teacherId",
+                c.class_name AS "className",
+                c.grade_level AS "gradeLevel",
+                s.name AS "subjectName",
+                l.term,
+                l.week_number AS "weekNumber",
+                l.unit_title AS "unitTitle",
+                l.lesson_number AS "lessonNumber",
+                l.topic,
+                l.effective_date AS "effectiveDate",
+                l.updated_at AS "updatedAt",
+                p.first_name AS "teacherFirstName",
+                p.last_name AS "teacherLastName",
+                u.email AS "teacherEmail"
+           FROM class_subject_lessons l
+           JOIN classes c ON c.id = l.class_id
+           JOIN subjects s ON s.id = l.subject_id
+           LEFT JOIN users u ON u.id = l.teacher_id
+           LEFT JOIN user_profiles p ON p.user_id = l.teacher_id
+          WHERE ($1::uuid IS NULL OR l.class_id = $1)
+            AND ($2::uuid IS NULL OR l.subject_id = $2)
+            AND ($3::uuid IS NULL OR l.teacher_id = $3)
+          ORDER BY c.grade_level, c.class_name, s.name, l.term NULLS LAST, l.week_number NULLS LAST`,
+        [classId || null, subjectId || null, teacherId || null],
+      ),
+      query(
+        `SELECT class_id AS "classId",
+                subject_id AS "subjectId",
+                teacher_id AS "teacherId",
+                AVG(progress)::int AS "avgProgress"
+           FROM student_subject_enrollments
+          WHERE class_id IS NOT NULL
+            AND subject_id IS NOT NULL
+            AND ($1::uuid IS NULL OR class_id = $1)
+            AND ($2::uuid IS NULL OR subject_id = $2)
+            AND ($3::uuid IS NULL OR teacher_id = $3)
+          GROUP BY class_id, subject_id, teacher_id`,
+        [classId || null, subjectId || null, teacherId || null],
+      ),
+      query(
+        `WITH student_base AS (
+           SELECT u.id AS "studentId",
+                  COALESCE(sp.class_id, up.class_id) AS "classId"
+             FROM users u
+             LEFT JOIN student_profiles sp ON sp.user_id = u.id
+             LEFT JOIN user_profiles up ON up.user_id = u.id
+            WHERE u.role = 'student'
+          )
+          SELECT sb."classId",
+                 COALESCE(a.subject_id, s.id) AS "subjectId",
+                 a.teacher_id AS "teacherId",
+                 COUNT(*)::int AS total,
+                 COUNT(*) FILTER (WHERE a.status = 'Completed')::int AS completed,
+                 AVG(a.grade_percent)::int AS "avgGrade"
+            FROM assessments a
+            JOIN student_base sb ON sb."studentId" = COALESCE(a.student_id, a.user_id)
+            LEFT JOIN subjects s ON s.name = a.subject AND a.subject_id IS NULL
+           WHERE sb."classId" IS NOT NULL
+             AND COALESCE(a.subject_id, s.id) IS NOT NULL
+             AND ($1::uuid IS NULL OR sb."classId" = $1)
+             AND ($2::uuid IS NULL OR COALESCE(a.subject_id, s.id) = $2)
+             AND ($3::uuid IS NULL OR a.teacher_id = $3)
+           GROUP BY sb."classId", COALESCE(a.subject_id, s.id), a.teacher_id`,
+        [classId || null, subjectId || null, teacherId || null],
+      ),
+    ]);
+
+    const progressMap = new Map();
+    for (const row of progressResult.rows) {
+      const key = `${row.classId}:${row.subjectId}:${row.teacherId || "any"}`;
+      progressMap.set(key, Number(row.avgProgress) || 0);
+    }
+
+    const assessmentMap = new Map();
+    for (const row of assessmentResult.rows) {
+      const key = `${row.classId}:${row.subjectId}:${row.teacherId || "any"}`;
+      assessmentMap.set(key, {
+        total: Number(row.total) || 0,
+        completed: Number(row.completed) || 0,
+        avgGrade: Number(row.avgGrade) || 0,
+      });
+    }
+
+    const grouped = new Map();
+    for (const row of lessonResult.rows) {
+      const branchKey = `${row.classId}:${row.subjectId}:${row.term || "Current Term"}`;
+      if (!grouped.has(branchKey)) {
+        grouped.set(branchKey, {
+          classId: row.classId,
+          subjectId: row.subjectId,
+          className: `${row.gradeLevel || ""} ${row.className || ""}`.trim(),
+          subjectName: row.subjectName || "Subject",
+          termName: row.term || "Current Term",
+          units: [],
+        });
+      }
+
+      const statsKey = `${row.classId}:${row.subjectId}:${row.teacherId || "any"}`;
+      const statsFallbackKey = `${row.classId}:${row.subjectId}:any`;
+      const progressValue =
+        progressMap.get(statsKey) ??
+        progressMap.get(statsFallbackKey) ??
+        0;
+      const assessmentStats =
+        assessmentMap.get(statsKey) ??
+        assessmentMap.get(statsFallbackKey) ?? { total: 0, completed: 0, avgGrade: 0 };
+      const assessmentCompletionPct = assessmentStats.total
+        ? clampPercent((assessmentStats.completed / assessmentStats.total) * 100)
+        : 0;
+      const completionPct = clampPercent(
+        progressValue > 0 ? progressValue : assessmentCompletionPct,
+      );
+      const effectiveDate = row.effectiveDate ? new Date(row.effectiveDate) : null;
+      const isDelayed =
+        Boolean(effectiveDate) &&
+        !Number.isNaN(effectiveDate.getTime()) &&
+        Date.now() - effectiveDate.getTime() > 1000 * 60 * 60 * 24 * 14 &&
+        completionPct < 80;
+
+      grouped.get(branchKey).units.push({
+        id: row.id,
+        teacherId: row.teacherId,
+        teacherName:
+          [row.teacherFirstName, row.teacherLastName].filter(Boolean).join(" ") ||
+          row.teacherEmail ||
+          "Unassigned",
+        unitNumber: row.lessonNumber || row.weekNumber || null,
+        unitTitle: row.unitTitle || row.topic || "Curriculum Unit",
+        completionPct,
+        assessmentCompletionPct,
+        isDelayed,
+        topics: [
+          {
+            id: `${row.id}-topic`,
+            title: row.topic || "Topic",
+            assessmentCompletionPct,
+          },
+        ],
+      });
+    }
+
+    return res.json({
+      tree: Array.from(grouped.values()),
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/teacher-analytics", async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `WITH teacher_base AS (
+         SELECT u.id,
+                u.email,
+                p.first_name AS "firstName",
+                p.last_name AS "lastName"
+           FROM users u
+           LEFT JOIN user_profiles p ON p.user_id = u.id
+          WHERE u.role = 'teacher'
+       ),
+       assignment_counts AS (
+         SELECT teacher_id,
+                COUNT(*)::int AS assignments
+           FROM teacher_assignments
+          GROUP BY teacher_id
+       ),
+       lesson_counts AS (
+         SELECT COALESCE(teacher_id, updated_by) AS teacher_id,
+                COUNT(*)::int AS lessons,
+                COUNT(*) FILTER (WHERE updated_at >= now() - interval '30 days')::int AS "recentLessons"
+           FROM class_subject_lessons
+          WHERE COALESCE(teacher_id, updated_by) IS NOT NULL
+          GROUP BY COALESCE(teacher_id, updated_by)
+       ),
+       assessment_stats AS (
+         SELECT teacher_id,
+                COUNT(*)::int AS total,
+                COUNT(*) FILTER (WHERE status = 'Completed')::int AS completed,
+                AVG(grade_percent)::int AS "avgGrade"
+           FROM assessments
+          WHERE teacher_id IS NOT NULL
+          GROUP BY teacher_id
+       ),
+       weak_topic_stats AS (
+         SELECT teacher_id,
+                weak_area,
+                COUNT(*)::int AS hits,
+                ROW_NUMBER() OVER (
+                  PARTITION BY teacher_id
+                  ORDER BY COUNT(*) DESC, weak_area
+                ) AS rank
+           FROM assessments
+          WHERE teacher_id IS NOT NULL
+            AND weak_area IS NOT NULL
+            AND btrim(weak_area) <> ''
+          GROUP BY teacher_id, weak_area
+       ),
+       login_stats AS (
+         SELECT user_id AS teacher_id,
+                MAX(created_at) AS "lastLoginAt"
+           FROM audit_logs
+          WHERE action IN ('login_success', 'login')
+          GROUP BY user_id
+       )
+       SELECT t.id,
+              t.email,
+              t."firstName",
+              t."lastName",
+              COALESCE(ac.assignments, 0) AS assignments,
+              COALESCE(lc.lessons, 0) AS lessons,
+              COALESCE(lc."recentLessons", 0) AS "recentLessons",
+              COALESCE(ast.total, 0) AS "assessmentTotal",
+              COALESCE(ast.completed, 0) AS "assessmentCompleted",
+              ast."avgGrade",
+              ls."lastLoginAt",
+              COALESCE(
+                ARRAY_AGG(wts.weak_area ORDER BY wts.hits DESC, wts.weak_area)
+                  FILTER (WHERE wts.rank <= 5),
+                ARRAY[]::text[]
+              ) AS "weakTopics"
+         FROM teacher_base t
+         LEFT JOIN assignment_counts ac ON ac.teacher_id = t.id
+         LEFT JOIN lesson_counts lc ON lc.teacher_id = t.id
+         LEFT JOIN assessment_stats ast ON ast.teacher_id = t.id
+         LEFT JOIN weak_topic_stats wts ON wts.teacher_id = t.id
+         LEFT JOIN login_stats ls ON ls.teacher_id = t.id
+        GROUP BY t.id, t.email, t."firstName", t."lastName", ac.assignments, lc.lessons,
+                 lc."recentLessons", ast.total, ast.completed, ast."avgGrade", ls."lastLoginAt"
+        ORDER BY t."firstName" NULLS LAST, t."lastName" NULLS LAST, t.email`,
+    );
+
+    return res.json({
+      teachers: rows.map((row) => {
+        const consistency = row.assignments
+          ? clampPercent((Number(row.recentLessons) / Number(row.assignments)) * 100)
+          : row.recentLessons > 0
+            ? 100
+            : 0;
+        const completionRate = row.assessmentTotal
+          ? clampPercent(
+              (Number(row.assessmentCompleted) / Number(row.assessmentTotal)) * 100,
+            )
+          : 0;
+        return {
+          id: row.id,
+          name:
+            [row.firstName, row.lastName].filter(Boolean).join(" ") ||
+            row.email ||
+            "Teacher",
+          lessonLoggingConsistency: consistency,
+          assessmentCompletionRate: completionRate,
+          averageStudentPerformance: row.avgGrade || 0,
+          recurringWeakTopicCount: Array.isArray(row.weakTopics) ? row.weakTopics.length : 0,
+          weakTopics: Array.isArray(row.weakTopics) ? row.weakTopics : [],
+          lastLogin: row.lastLoginAt ? formatDateTime(row.lastLoginAt) : null,
+          lastLoginAt: row.lastLoginAt || null,
+        };
+      }),
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/audit-logs", async (req, res, next) => {
+  try {
+    const userId = String(req.query.userId || "").trim();
+    const action = String(req.query.action || "").trim();
+    const dateFrom = String(req.query.dateFrom || "").trim();
+    const dateTo = String(req.query.dateTo || "").trim();
+    const queryText = String(req.query.q || "").trim();
+    const likeQuery = queryText ? `%${queryText}%` : null;
+    const limit = clamp(req.query.limit || 200, 1, 500);
+    const offset = clamp(req.query.offset || 0, 0, 200000);
+
+    if (userId && !isUuid(userId)) {
+      return res.status(400).json({ error: "Invalid user id." });
+    }
+    if (action && !AUDIT_ACTION_FILTER.test(action)) {
+      return res.status(400).json({ error: "Invalid action filter." });
+    }
+
+    const fromValue = dateFrom ? new Date(dateFrom) : null;
+    const toValue = dateTo ? new Date(`${dateTo}T23:59:59.999Z`) : null;
+    if (fromValue && Number.isNaN(fromValue.getTime())) {
+      return res.status(400).json({ error: "Invalid dateFrom." });
+    }
+    if (toValue && Number.isNaN(toValue.getTime())) {
+      return res.status(400).json({ error: "Invalid dateTo." });
+    }
+
+    const fromIso = fromValue ? fromValue.toISOString() : null;
+    const toIso = toValue ? toValue.toISOString() : null;
+
+    const [countResult, rowsResult, actionResult] = await Promise.all([
+      query(
+        `SELECT COUNT(*)::int AS total
+           FROM audit_logs a
+           LEFT JOIN users u ON u.id = a.user_id
+           LEFT JOIN user_profiles p ON p.user_id = a.user_id
+          WHERE ($1::uuid IS NULL OR a.user_id = $1)
+            AND ($2::text IS NULL OR a.action = $2)
+            AND ($3::timestamptz IS NULL OR a.created_at >= $3)
+            AND ($4::timestamptz IS NULL OR a.created_at <= $4)
+            AND (
+              $5::text IS NULL
+              OR a.action ILIKE $5
+              OR COALESCE(u.email, '') ILIKE $5
+              OR COALESCE(p.first_name, '') ILIKE $5
+              OR COALESCE(p.last_name, '') ILIKE $5
+              OR COALESCE(a.context::text, '') ILIKE $5
+            )`,
+        [userId || null, action || null, fromIso, toIso, likeQuery],
+      ),
+      query(
+        `SELECT a.id,
+                a.user_id AS "userId",
+                a.action,
+                a.context,
+                a.ip,
+                a.user_agent AS "userAgent",
+                a.created_at AS "createdAt",
+                u.email,
+                u.role,
+                p.first_name AS "firstName",
+                p.last_name AS "lastName"
+           FROM audit_logs a
+           LEFT JOIN users u ON u.id = a.user_id
+           LEFT JOIN user_profiles p ON p.user_id = a.user_id
+          WHERE ($1::uuid IS NULL OR a.user_id = $1)
+            AND ($2::text IS NULL OR a.action = $2)
+            AND ($3::timestamptz IS NULL OR a.created_at >= $3)
+            AND ($4::timestamptz IS NULL OR a.created_at <= $4)
+            AND (
+              $5::text IS NULL
+              OR a.action ILIKE $5
+              OR COALESCE(u.email, '') ILIKE $5
+              OR COALESCE(p.first_name, '') ILIKE $5
+              OR COALESCE(p.last_name, '') ILIKE $5
+              OR COALESCE(a.context::text, '') ILIKE $5
+            )
+          ORDER BY a.created_at DESC
+          LIMIT $6 OFFSET $7`,
+        [userId || null, action || null, fromIso, toIso, likeQuery, limit, offset],
+      ),
+      query(
+        `SELECT action, COUNT(*)::int AS total
+           FROM audit_logs
+          GROUP BY action
+          ORDER BY total DESC, action ASC`,
+      ),
+    ]);
+
+    return res.json({
+      total: countResult.rows[0]?.total || 0,
+      actions: actionResult.rows.map((row) => ({
+        action: row.action,
+        total: row.total || 0,
+      })),
+      logs: rowsResult.rows.map((row) => {
+        const context = row.context && typeof row.context === "object" ? row.context : {};
+        const entity =
+          context.entity ||
+          context.resourceId ||
+          context.userId ||
+          context.requestId ||
+          context.name ||
+          null;
+        return {
+          id: row.id,
+          userId: row.userId || null,
+          userEmail: row.email || null,
+          userName:
+            [row.firstName, row.lastName].filter(Boolean).join(" ") ||
+            row.email ||
+            "Unknown",
+          role: row.role || null,
+          action: row.action,
+          entity,
+          timestamp: formatDateTime(row.createdAt),
+          timestampRaw: row.createdAt,
+          ipAddress: row.ip || null,
+          device: row.userAgent || null,
+          context,
+        };
+      }),
+      limit,
+      offset,
     });
   } catch (error) {
     return next(error);

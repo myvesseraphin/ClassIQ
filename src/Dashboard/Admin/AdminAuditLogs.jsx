@@ -1,13 +1,13 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Loader2, Search } from "lucide-react";
 import { toast } from "react-toastify";
 import api from "../../api/client";
-import EmptyState from "../../Component/EmptyState";
 
 const AdminAuditLogs = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [logs, setLogs] = useState([]);
   const [users, setUsers] = useState([]);
+  const [actions, setActions] = useState([]);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedUser, setSelectedUser] = useState("");
@@ -17,15 +17,45 @@ const AdminAuditLogs = () => {
 
   useEffect(() => {
     let active = true;
-    const load = async () => {
+    const loadUsers = async () => {
       try {
-        const [{ data: logsData }, { data: usersData }] = await Promise.all([
-          api.get("/admin/audit-logs"),
-          api.get("/admin/users", { params: { limit: 200, offset: 0 } }),
-        ]);
+        const { data } = await api.get("/admin/users", {
+          params: { limit: 200, offset: 0 },
+        });
+        if (!active) return;
+        setUsers(Array.isArray(data?.users) ? data.users : []);
+      } catch (err) {
+        console.error("Failed to load users for audit filters", err);
+      }
+    };
+    loadUsers();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const loadLogs = async () => {
+      try {
+        setIsLoading(true);
+        const params = {
+          q: searchQuery || undefined,
+          userId: selectedUser || undefined,
+          action: selectedAction || undefined,
+          dateFrom: dateFrom || undefined,
+          dateTo: dateTo || undefined,
+          limit: 300,
+          offset: 0,
+        };
+        const { data: logsData } = await api.get("/admin/audit-logs", { params });
         if (!active) return;
         setLogs(Array.isArray(logsData?.logs) ? logsData.logs : []);
-        setUsers(Array.isArray(usersData?.users) ? usersData.users : []);
+        setActions(
+          Array.isArray(logsData?.actions)
+            ? logsData.actions.map((item) => item.action).filter(Boolean)
+            : [],
+        );
       } catch (err) {
         console.error("Failed to load audit logs", err);
         toast.error("Failed to load audit logs.");
@@ -33,41 +63,13 @@ const AdminAuditLogs = () => {
         if (active) setIsLoading(false);
       }
     };
-    load();
+
+    const timer = setTimeout(loadLogs, 220);
     return () => {
       active = false;
+      clearTimeout(timer);
     };
-  }, []);
-
-  const actions = useMemo(
-    () =>
-      Array.from(new Set(logs.map((l) => String(l.action || "").trim()).filter(Boolean))),
-    [logs],
-  );
-
-  const filteredLogs = useMemo(() => {
-    return logs.filter((item) => {
-      const q = searchQuery.trim().toLowerCase();
-      const matchesQ =
-        !q ||
-        String(item.userName || "").toLowerCase().includes(q) ||
-        String(item.action || "").toLowerCase().includes(q) ||
-        String(item.entity || "").toLowerCase().includes(q);
-      const matchesUser =
-        !selectedUser || String(item.userId || "") === String(selectedUser);
-      const matchesAction =
-        !selectedAction || String(item.action || "") === String(selectedAction);
-      const itemDate = item.timestamp ? new Date(item.timestamp).getTime() : null;
-      const fromOk = dateFrom
-        ? itemDate !== null && itemDate >= new Date(dateFrom).getTime()
-        : true;
-      const toOk = dateTo
-        ? itemDate !== null &&
-          itemDate <= new Date(`${dateTo}T23:59:59.999`).getTime()
-        : true;
-      return matchesQ && matchesUser && matchesAction && fromOk && toOk;
-    });
-  }, [logs, searchQuery, selectedUser, selectedAction, dateFrom, dateTo]);
+  }, [searchQuery, selectedUser, selectedAction, dateFrom, dateTo]);
 
   if (isLoading) {
     return (
@@ -75,10 +77,6 @@ const AdminAuditLogs = () => {
         <Loader2 className="animate-spin text-blue-600" size={40} />
       </div>
     );
-  }
-
-  if (filteredLogs.length === 0) {
-    return <EmptyState />;
   }
 
   return (
@@ -170,33 +168,44 @@ const AdminAuditLogs = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {filteredLogs.map((item) => (
-                  <tr key={item.id} className="hover:bg-blue-50/20 transition-colors">
-                    <td className="px-8 py-5">
-                      <p className="text-sm font-black text-slate-800">
-                        {item.userName || item.userEmail || "Unknown"}
-                      </p>
-                      <p className="text-[11px] font-bold text-slate-400">
-                        {item.userEmail || "--"}
-                      </p>
-                    </td>
-                    <td className="px-8 py-5 text-sm font-bold text-slate-600">
-                      {String(item.role || "--").toUpperCase()}
-                    </td>
-                    <td className="px-8 py-5 text-sm font-bold text-slate-600">
-                      {item.action || "--"}
-                    </td>
-                    <td className="px-8 py-5 text-sm font-bold text-slate-600">
-                      {item.entity || "--"}
-                    </td>
-                    <td className="px-8 py-5 text-sm font-bold text-slate-500">
-                      {item.timestamp || "--"}
-                    </td>
-                    <td className="px-8 py-5 text-sm font-bold text-slate-400">
-                      {item.ipAddress || item.device || "--"}
+                {logs.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={6}
+                      className="px-8 py-12 text-center text-sm font-bold text-slate-400"
+                    >
+                      No audit logs found for the selected filters.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  logs.map((item) => (
+                    <tr key={item.id} className="hover:bg-blue-50/20 transition-colors">
+                      <td className="px-8 py-5">
+                        <p className="text-sm font-black text-slate-800">
+                          {item.userName || item.userEmail || "Unknown"}
+                        </p>
+                        <p className="text-[11px] font-bold text-slate-400">
+                          {item.userEmail || "--"}
+                        </p>
+                      </td>
+                      <td className="px-8 py-5 text-sm font-bold text-slate-600">
+                        {String(item.role || "--").toUpperCase()}
+                      </td>
+                      <td className="px-8 py-5 text-sm font-bold text-slate-600">
+                        {item.action || "--"}
+                      </td>
+                      <td className="px-8 py-5 text-sm font-bold text-slate-600">
+                        {item.entity || "--"}
+                      </td>
+                      <td className="px-8 py-5 text-sm font-bold text-slate-500">
+                        {item.timestamp || "--"}
+                      </td>
+                      <td className="px-8 py-5 text-sm font-bold text-slate-400">
+                        {item.ipAddress || item.device || "--"}
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>

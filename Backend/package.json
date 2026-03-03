@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch src/index.js",
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "seed:mock": "node src/seedMockData.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
