@@ -53,6 +53,7 @@ import AdminHelp from "./Dashboard/Admin/AdminHelp";
 import AdminCurriculum from "./Dashboard/Admin/AdminCurriculum";
 import AdminTeachersAnalytics from "./Dashboard/Admin/AdminTeachersAnalytics";
 import AdminAuditLogs from "./Dashboard/Admin/AdminAuditLogs";
+import AdminTeacherTimetable from "./Dashboard/Admin/AdminTeacherTimetable";
 
 const Preloader = () => (
   <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-white">
@@ -199,6 +200,7 @@ function App() {
             path="teachers-analytics"
             element={<AdminTeachersAnalytics />}
           />
+          <Route path="teacher-timetable" element={<AdminTeacherTimetable />} />
           <Route path="resources" element={<AdminResources />} />
           <Route path="reports" element={<AdminReports />} />
           <Route

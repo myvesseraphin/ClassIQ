@@ -12,6 +12,7 @@ import {
   ClipboardList,
   Activity,
   ScrollText,
+  CalendarDays,
 } from "lucide-react";
 import api, { resolveMediaUrl } from "../../api/client";
 import logo from "../../assets/logo.png";
@@ -85,6 +86,11 @@ const AdminSidebar = () => {
       icon: <Activity size={22} strokeWidth={2.5} />,
       label: "Teacher Analytics",
       path: "/admin/teachers-analytics",
+    },
+    {
+      icon: <CalendarDays size={22} strokeWidth={2.5} />,
+      label: "Teacher Timetable",
+      path: "/admin/teacher-timetable",
     },
     {
       icon: <BookOpen size={22} strokeWidth={2.5} />,

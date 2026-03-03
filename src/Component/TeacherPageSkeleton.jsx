@@ -228,43 +228,64 @@ const TeacherAssessmentsSkeleton = () => (
 
 const TeacherStudentSelectionSkeleton = () => (
   <div className="w-full h-full font-sans">
-    <div className="max-w-7xl mx-auto space-y-8">
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-        <S className="h-20 w-full lg:w-[520px]" />
-        <S className="h-10 w-28 rounded-xl" />
-      </div>
-
+    <div className="max-w-7xl mx-auto space-y-10">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div className="space-y-2">
-          <S className="h-10 w-72" />
-          <S className="h-4 w-80 rounded-full" />
+        <div className="space-y-3">
+          <S className="h-10 w-10 rounded-xl" />
+          <div className="space-y-2">
+            <S className="h-10 w-64" />
+            <S className="h-4 w-80 rounded-full" />
+          </div>
         </div>
-        <S className="h-14 w-full md:w-96" />
+        <S className="h-12 w-44 rounded-2xl" />
       </div>
 
-      <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-6">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div
-            key={i}
-            className="bg-white border border-slate-100 rounded-[2rem] p-6 shadow-sm"
-          >
-            <div className="flex items-center justify-between mb-5">
-              <div className="flex items-center gap-3">
-                <S className="w-12 h-12 rounded-2xl" />
-                <div className="space-y-2">
-                  <S className="h-3 w-20 rounded-full" />
-                  <S className="h-5 w-32" />
-                </div>
-              </div>
-              <S className="h-4 w-10 rounded-full" />
-            </div>
-            <div className="flex items-center justify-between">
-              <S className="h-3 w-20 rounded-full" />
-              <S className="h-3 w-16 rounded-full" />
-            </div>
-            <S className="h-3 w-36 rounded-full mt-4" />
-          </div>
-        ))}
+      <S className="h-14 w-full lg:w-96 rounded-2xl" />
+
+      <div className="rounded-[2.5rem] border border-slate-200 bg-white overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[920px] border-collapse">
+            <thead>
+              <tr className="bg-white">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <th key={i} className="border border-slate-200 px-3 py-3">
+                    <S className={`h-4 ${i === 0 ? "w-10" : "w-28"} rounded-md`} />
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: 6 }).map((_, rowIndex) => (
+                <tr key={rowIndex}>
+                  <td className="border border-slate-200 px-3 py-3">
+                    <S className="h-4 w-6 rounded-md" />
+                  </td>
+                  <td className="border border-slate-200 px-3 py-3">
+                    <div className="inline-flex items-center gap-3">
+                      <S className="w-8 h-8 rounded-full" />
+                      <S className="h-4 w-20 rounded-md" />
+                    </div>
+                  </td>
+                  <td className="border border-slate-200 px-3 py-3">
+                    <S className="h-4 w-32 rounded-md" />
+                  </td>
+                  <td className="border border-slate-200 px-3 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <S className="h-4 w-20 rounded-md" />
+                      <S className="h-4 w-4 rounded-md" />
+                    </div>
+                  </td>
+                  <td className="border border-slate-200 px-3 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <S className="h-4 w-20 rounded-md" />
+                      <S className="h-4 w-4 rounded-md" />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
@@ -274,17 +295,16 @@ const TeacherExercisesSkeleton = () => (
   <div className="w-full h-full font-sans">
     <div className="max-w-7xl mx-auto space-y-10">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div className="space-y-2">
-          <S className="h-10 w-72" />
-          <S className="h-4 w-56 rounded-full" />
-          <div className="flex gap-2">
-            <S className="h-10 w-24 rounded-xl" />
-            <S className="h-10 w-32 rounded-xl" />
+        <div className="space-y-3">
+          <S className="h-10 w-10 rounded-xl" />
+          <div className="space-y-2">
+            <S className="h-10 w-72" />
+            <S className="h-4 w-56 rounded-full" />
           </div>
         </div>
         <div className="flex items-center gap-3">
           <S className="h-12 w-36 rounded-[1.5rem]" />
-          <S className="h-12 w-40 rounded-[1.5rem]" />
+          <S className="h-12 w-32 rounded-[1.5rem]" />
           <div className="flex items-center gap-2 bg-white border-2 border-slate-100 p-1.5 rounded-2xl shadow-sm">
             <S className="h-9 w-9 rounded-xl" />
             <S className="h-9 w-9 rounded-xl" />
@@ -298,8 +318,8 @@ const TeacherExercisesSkeleton = () => (
         ))}
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-4 items-center justify-between">
-        <FilterChipRow count={5} />
+      <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
+        <FilterChipRow count={5} withIcon />
         <S className="h-14 w-full lg:w-96" />
       </div>
 
@@ -307,17 +327,19 @@ const TeacherExercisesSkeleton = () => (
         {Array.from({ length: 6 }).map((_, i) => (
           <div
             key={i}
-            className="bg-white border border-slate-100 rounded-[2.5rem] p-8 shadow-sm space-y-4"
+            className="bg-white border border-slate-100 rounded-[2.5rem] p-8 shadow-sm h-full flex flex-col"
           >
             <div className="flex justify-between items-start">
               <S className="w-14 h-14 rounded-2xl" />
               <S className="h-6 w-20 rounded-lg" />
             </div>
             <S className="h-6 w-4/5" />
-            <S className="h-4 w-2/3 rounded-full" />
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              <S className="h-12 rounded-2xl" />
-              <S className="h-12 rounded-2xl" />
+            <S className="h-4 w-28 rounded-full mt-1" />
+            <S className="h-4 w-40 rounded-full mt-1" />
+            <div className="mt-auto pt-6 grid grid-cols-3 gap-3">
+              <S className="h-11 rounded-xl" />
+              <S className="h-11 rounded-xl" />
+              <S className="h-11 rounded-xl" />
             </div>
           </div>
         ))}
@@ -330,28 +352,74 @@ const TeacherOutlineSkeleton = () => (
   <div className="w-full h-full font-sans">
     <div className="max-w-7xl mx-auto space-y-8">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-        <div className="space-y-2">
-          <S className="h-10 w-72" />
-          <S className="h-4 w-52 rounded-full" />
+        <div className="space-y-1">
+          <S className="h-10 w-64" />
+          <S className="h-4 w-48 rounded-full" />
         </div>
-        <S className="h-12 w-32 rounded-xl" />
+        <div className="flex items-center gap-2">
+          <S className="h-11 w-28 rounded-xl" />
+          <S className="h-11 w-24 rounded-xl" />
+        </div>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <StatCard key={i} />
-        ))}
-      </div>
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <S className="h-56 w-full xl:col-span-2" />
-        <S className="h-56 w-full" />
-      </div>
-      <div className="space-y-6">
-        <S className="h-56 w-full rounded-[2.5rem]" />
-        <S className="h-56 w-full rounded-[2.5rem]" />
-      </div>
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <S className="h-72 w-full rounded-[2.5rem]" />
-        <S className="h-72 w-full rounded-[2.5rem]" />
+
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-6">
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <StatCard key={i} />
+            ))}
+          </div>
+          <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-6">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div
+                key={i}
+                className="rounded-[2.2rem] border border-slate-100 bg-white p-6 shadow-sm"
+              >
+                <div className="flex items-center justify-between">
+                  <S className="h-3 w-28 rounded-full" />
+                  <S className="h-5 w-20 rounded-full" />
+                </div>
+                <S className="h-6 w-32 mt-4" />
+                <S className="h-4 w-40 rounded-full mt-2" />
+                <S className="h-3 w-28 rounded-full mt-2" />
+                <div className="mt-5 grid grid-cols-2 gap-2">
+                  <S className="h-10 w-full rounded-xl" />
+                  <S className="h-10 w-full rounded-xl" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
+            <S className="h-3 w-24 rounded-full" />
+            <div className="mt-4 space-y-3">
+              <S className="h-4 w-full rounded-full" />
+              <S className="h-4 w-full rounded-full" />
+              <S className="h-4 w-full rounded-full" />
+            </div>
+            <S className="h-2 w-full rounded-full mt-4" />
+          </div>
+          <div className="rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm space-y-3">
+            <S className="h-3 w-32 rounded-full" />
+            <S className="h-6 w-40" />
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="rounded-2xl border border-slate-100 p-4 flex items-center gap-4">
+                <S className="w-20 h-20 rounded-full" />
+                <div className="space-y-2">
+                  <S className="h-4 w-24 rounded-full" />
+                  <S className="h-3 w-20 rounded-full" />
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
+            <S className="h-3 w-28 rounded-full" />
+            <S className="h-4 w-full rounded-full mt-3" />
+            <S className="h-3 w-48 rounded-full mt-2" />
+          </div>
+        </div>
       </div>
     </div>
   </div>

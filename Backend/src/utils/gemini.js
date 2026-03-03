@@ -718,6 +718,90 @@ Rules:
   }
 };
 
+export const extractTimetableFromImageWithGemini = async ({
+  imagePath,
+  mimeType,
+  teacherName,
+}) => {
+  if (!imagePath || !isGeminiEnabled()) return null;
+
+  const prompt = `
+You are a timetable extraction assistant.
+Analyze this timetable image and return STRICT JSON only.
+
+Context:
+- Teacher: ${teacherName || "Unknown"}
+
+JSON schema:
+{
+  "rows": [
+    {
+      "day": string,
+      "startTime": string,
+      "endTime": string,
+      "title": string,
+      "room": string | null,
+      "instructor": string | null
+    }
+  ]
+}
+
+Rules:
+- Return each class period visible in the image.
+- day should be weekday text (Mon, Tuesday, etc.) or number 0..6.
+- startTime and endTime should be short time text (prefer HH:MM 24-hour when possible).
+- title should be the subject/class name.
+- Use null when room or instructor is not visible.
+- Do not invent sessions that are not visible.
+`.trim();
+
+  try {
+    const parsed = await generateStructuredJson({
+      prompt,
+      imagePath,
+      mimeType: mimeType || getMimeTypeFromPath(imagePath),
+      temperature: 0.1,
+    });
+
+    if (!parsed || typeof parsed !== "object") return null;
+    const rowsRaw = Array.isArray(parsed.rows)
+      ? parsed.rows
+      : Array.isArray(parsed.classes)
+        ? parsed.classes
+        : [];
+
+    const rows = rowsRaw
+      .slice(0, 300)
+      .map((item) => ({
+        day: normalizeText(item?.day, 24),
+        startTime: normalizeText(item?.startTime, 20),
+        endTime: normalizeText(item?.endTime, 20),
+        title: normalizeText(item?.title, 220),
+        room: normalizeText(item?.room, 120) || null,
+        instructor:
+          normalizeText(item?.instructor, 120) ||
+          normalizeText(teacherName, 120) ||
+          null,
+      }))
+      .filter((row) => row.day && row.startTime && row.endTime && row.title);
+
+    if (!rows.length) return null;
+    return { rows };
+  } catch (error) {
+    if (isHardQuotaExhausted(error)) {
+      console.warn(
+        "Gemini quota exhausted while extracting timetable from image.",
+      );
+    } else {
+      console.error(
+        "Gemini timetable extraction failed",
+        error?.message || error,
+      );
+    }
+    return null;
+  }
+};
+
 export const analyzeExerciseSubmissionWithGemini = async ({
   subject,
   gradeLevel,

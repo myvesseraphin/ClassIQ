@@ -1863,12 +1863,18 @@ const Exercise = () => {
                         reviewPayload?.submission?.reviewStatus ===
                         "waiting_teacher_review"
                           ? "bg-gray-200 text-gray-700"
+                          : reviewPayload?.submission?.reviewStatus ===
+                            "teacher_graded"
+                            ? "bg-sky-100 text-sky-700"
                           : "bg-emerald-50 text-emerald-700"
                       }`}
                     >
                       {reviewPayload?.submission?.reviewStatus ===
                       "waiting_teacher_review"
                         ? "Waiting teacher review"
+                        : reviewPayload?.submission?.reviewStatus ===
+                          "teacher_graded"
+                          ? "Teacher graded"
                         : "AI graded"}
                     </span>
                   </div>
