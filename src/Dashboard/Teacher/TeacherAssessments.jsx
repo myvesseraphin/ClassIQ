@@ -164,6 +164,17 @@ const TeacherAssessments = () => {
     );
   }, [assessments, scopedIds, selectedClass]);
 
+  const assessmentsByStudent = useMemo(() => {
+    const map = new Map();
+    scopedAssessments.forEach((assessment) => {
+      const studentId = assessment?.student?.id;
+      if (!studentId) return;
+      if (!map.has(studentId)) map.set(studentId, []);
+      map.get(studentId).push(assessment);
+    });
+    return map;
+  }, [scopedAssessments]);
+
   const latestByStudent = useMemo(() => {
     const map = new Map();
     scopedAssessments.forEach((a) => {
@@ -178,6 +189,9 @@ const TeacherAssessments = () => {
     () =>
       scopedStudents.map((student) => {
         const latest = latestByStudent.get(student.id) || null;
+        const list = assessmentsByStudent.get(student.id) || [];
+        const completedAssessments = list.filter((item) => doneStatus(item?.status)).length;
+        const totalAssessments = list.length;
         const done = doneStatus(latest?.status);
         return {
           student,
@@ -185,9 +199,12 @@ const TeacherAssessments = () => {
           done,
           grade: latest?.grade || "--",
           weakArea: latest?.weakArea || student.weakArea || "--",
+          totalAssessments,
+          completedAssessments,
+          pendingAssessments: Math.max(totalAssessments - completedAssessments, 0),
         };
       }),
-    [scopedStudents, latestByStudent],
+    [scopedStudents, latestByStudent, assessmentsByStudent],
   );
 
   const filteredRows = useMemo(() => {
@@ -211,6 +228,11 @@ const TeacherAssessments = () => {
       : "--";
     return { total, completed, pending: Math.max(total - completed, 0), avg };
   }, [rows]);
+
+  const maxAssessmentsByStudent = useMemo(
+    () => rows.reduce((max, row) => Math.max(max, row.totalAssessments || 0), 0),
+    [rows],
+  );
 
   const openClass = (item) => {
     setSelectedClass(item);
@@ -622,55 +644,96 @@ const TeacherAssessments = () => {
               ) : filteredRows.length === 0 ? (
                 <EmptyState />
               ) : (
-                <div className="space-y-3">
-                  {filteredRows.map((row) => (
-                    <div
-                      key={row.student.id}
-                      className="grid grid-cols-1 lg:grid-cols-[1.4fr_0.7fr_1fr_auto] gap-3 lg:items-center rounded-2xl border border-slate-100 bg-slate-50/50 px-4 py-4"
-                    >
-                      <div className="min-w-0">
-                        <button
-                          type="button"
-                          onClick={() => setStudentModalId(row.student.id)}
-                          className="text-left text-sm font-semibold text-slate-900 hover:text-[#2D70FD] truncate"
-                        >
-                          {row.student.name || "Student"}
-                        </button>
-                        <p className="text-xs font-medium text-slate-400 truncate">
-                          {`Student No ${row.studentNo || "--"} • ID ${row.student.studentNumber || "--"}`}
-                        </p>
-                      </div>
-                      <span
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-semibold uppercase tracking-widest ${
-                          row.done ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-500"
-                        }`}
-                      >
-                        {row.done ? <CheckCircle2 size={13} /> : <AlertCircle size={13} />}
-                        {row.done ? "Done" : "Pending"}
-                      </span>
-                      <p className="text-sm font-semibold text-slate-800 truncate">
-                        {row.grade}
-                        <span className="text-slate-400"> • </span>
-                        {row.weakArea}
-                      </p>
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setStudentModalId(row.student.id)}
-                          className="h-10 w-10 rounded-xl bg-white border border-slate-200 text-[#2D70FD] inline-flex items-center justify-center hover:bg-blue-50"
-                        >
-                          <ArrowUpRight size={16} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openScan(row.student)}
-                          className="h-10 w-10 rounded-xl bg-[#2D70FD] text-white inline-flex items-center justify-center hover:bg-[#1E5CE0]"
-                        >
-                          <ImagePlus size={16} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                <div className="rounded-[2.5rem] border border-slate-200 bg-white overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[920px] border-collapse">
+                      <thead>
+                        <tr className="bg-white">
+                          <th className="px-3 py-3 text-left text-sm font-black text-slate-800 border border-slate-200 w-14">
+                            No
+                          </th>
+                          <th className="px-3 py-3 text-left text-sm font-black text-slate-800 border border-slate-200">
+                            Student Number
+                          </th>
+                          <th className="px-3 py-3 text-left text-sm font-black text-slate-800 border border-slate-200">
+                            Student Names
+                          </th>
+                          <th className="px-3 py-3 text-left text-sm font-black text-slate-800 border border-slate-200 min-w-[220px]">
+                            <div className="space-y-1">
+                              <p>Assessments Completed</p>
+                              <div className="flex items-center gap-2">
+                                <span className="px-2.5 py-0.5 rounded-full border border-slate-300 text-[11px] font-semibold text-slate-700">
+                                  Max: {maxAssessmentsByStudent}
+                                </span>
+                                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500 text-white text-[11px] font-bold">
+                                  TRACKING
+                                </span>
+                              </div>
+                            </div>
+                          </th>
+                          <th className="px-3 py-3 text-left text-sm font-black text-slate-800 border border-slate-200 min-w-[220px]">
+                            <div className="space-y-1">
+                              <p>Pending Assessments</p>
+                              <div className="flex items-center gap-2">
+                                <span className="px-2.5 py-0.5 rounded-full border border-slate-300 text-[11px] font-semibold text-slate-700">
+                                  Max: {maxAssessmentsByStudent}
+                                </span>
+                                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500 text-white text-[11px] font-bold">
+                                  TRACKING
+                                </span>
+                              </div>
+                            </div>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredRows.map((row, index) => (
+                          <tr
+                            key={row.student.id}
+                            onClick={() => setStudentModalId(row.student.id)}
+                            className="bg-white cursor-pointer hover:bg-slate-50"
+                          >
+                            <td className="px-3 py-3 text-sm font-semibold text-slate-800 border border-slate-200">
+                              {index + 1}
+                            </td>
+                            <td className="px-3 py-3 border border-slate-200">
+                              <div className="inline-flex items-center gap-3">
+                                <span className="w-8 h-8 rounded-full bg-slate-200 text-[#1d4ed8] inline-flex items-center justify-center">
+                                  <Users size={15} />
+                                </span>
+                                <span className="text-sm font-semibold text-slate-800">
+                                  {row.student.studentNumber || "--"}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 border border-slate-200">
+                              <p className="text-sm font-semibold text-slate-900">
+                                {row.student.name || "Student"}
+                              </p>
+                            </td>
+                            <td className="px-3 py-3 border border-slate-200">
+                              <div className="flex items-center justify-between gap-3">
+                                <p className="text-sm font-semibold text-slate-900">
+                                  {row.completedAssessments}
+                                  <span className="text-slate-400">/{row.totalAssessments || 0}</span>
+                                </p>
+                                <CheckCircle2 size={18} className="text-emerald-500" />
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 border border-slate-200">
+                              <div className="flex items-center justify-between gap-3">
+                                <p className="text-sm font-semibold text-slate-900">
+                                  {row.pendingAssessments}
+                                  <span className="text-slate-400">/{row.totalAssessments || 0}</span>
+                                </p>
+                                <CheckCircle2 size={18} className="text-emerald-500" />
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
             </div>
@@ -782,13 +845,26 @@ const TeacherAssessments = () => {
         <Modal onClose={() => setStudentModalId("")}>
           <div className="p-6 md:p-8 border-b border-slate-100 flex items-center justify-between gap-3">
             <h3 className="text-xl font-black text-slate-900">{selectedStudent.name || "Student"}</h3>
-            <button
-              type="button"
-              onClick={() => setStudentModalId("")}
-              className="h-10 w-10 rounded-xl bg-slate-100 text-slate-500 inline-flex items-center justify-center hover:bg-slate-200"
-            >
-              <X size={18} />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setStudentModalId("");
+                  openScan(selectedStudent);
+                }}
+                className="h-10 w-10 rounded-xl bg-[#2D70FD] text-white inline-flex items-center justify-center hover:bg-[#1E5CE0]"
+                title="Upload student answers"
+              >
+                <ImagePlus size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setStudentModalId("")}
+                className="h-10 w-10 rounded-xl bg-slate-100 text-slate-500 inline-flex items-center justify-center hover:bg-slate-200"
+              >
+                <X size={18} />
+              </button>
+            </div>
           </div>
           <div className="p-6 md:p-8 space-y-2 max-h-[65vh] overflow-y-auto">
             {selectedStudentAssessments.length === 0 ? (

@@ -1,8 +1,17 @@
 import express from "express";
 import dotenv from "dotenv";
-import { query } from "../db.js";
+import fs from "fs";
+import path from "path";
+import multer from "multer";
+import XLSX from "xlsx";
+import pool, { query } from "../db.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { uploadLimiter } from "../middleware/rateLimit.js";
 import { logAudit } from "../utils/audit.js";
+import {
+  extractTimetableFromImageWithGemini,
+  isGeminiEnabled,
+} from "../utils/gemini.js";
 
 dotenv.config();
 
@@ -86,9 +95,392 @@ const deleteFromSupabase = async (bucket, filePath) => {
 
 const ALLOWED_ROLES = new Set(["student", "teacher", "admin"]);
 const ALLOWED_REQUEST_STATUSES = new Set(["pending", "approved", "rejected"]);
-const AUDIT_ACTION_FILTER = /^[a-z0-9_.:-]{2,80}$/i;
+const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-const clampPercent = (value) => clamp(Math.round(Number(value) || 0), 0, 100);
+const DAY_LOOKUP = new Map([
+  ["mon", 0],
+  ["monday", 0],
+  ["tue", 1],
+  ["tues", 1],
+  ["tuesday", 1],
+  ["wed", 2],
+  ["wednesday", 2],
+  ["thu", 3],
+  ["thur", 3],
+  ["thurs", 3],
+  ["thursday", 3],
+  ["fri", 4],
+  ["friday", 4],
+  ["sat", 5],
+  ["saturday", 5],
+  ["sun", 6],
+  ["sunday", 6],
+]);
+
+const TIMETABLE_ALLOWED_MIME_TYPES = new Set([
+  "text/csv",
+  "application/csv",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel.sheet.macroenabled.12",
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp",
+]);
+
+const TIMETABLE_ALLOWED_EXTENSIONS = new Set([
+  ".csv",
+  ".xls",
+  ".xlsx",
+  ".xlsm",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+]);
+
+const normalizeHeaderToken = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+
+const toTimeString = (hours, minutes) =>
+  `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+
+const formatTime = (value) => (value ? String(value).slice(0, 5) : null);
+
+const timeToMinutes = (value) => {
+  const match = String(value || "").match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (
+    !Number.isFinite(hours) ||
+    !Number.isFinite(minutes) ||
+    hours < 0 ||
+    hours > 23 ||
+    minutes < 0 ||
+    minutes > 59
+  ) {
+    return null;
+  }
+  return hours * 60 + minutes;
+};
+
+const parseDayValue = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) {
+    const whole = Math.trunc(numeric);
+    if (whole >= 0 && whole <= 6) return whole;
+    if (whole >= 1 && whole <= 7) return whole - 1;
+  }
+
+  const text = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\.+$/, "");
+  if (!text) return null;
+
+  if (DAY_LOOKUP.has(text)) return DAY_LOOKUP.get(text);
+  const short = text.slice(0, 3);
+  if (DAY_LOOKUP.has(short)) return DAY_LOOKUP.get(short);
+
+  return null;
+};
+
+const parseTimeValue = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return toTimeString(value.getHours(), value.getMinutes());
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (value >= 0 && value < 1) {
+      const totalMinutes = Math.round(value * 24 * 60) % (24 * 60);
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      return toTimeString(hours, minutes);
+    }
+
+    if (value >= 1 && value < 24) {
+      const totalMinutes = Math.round(value * 60);
+      const boundedMinutes = Math.max(0, Math.min(totalMinutes, 23 * 60 + 59));
+      const hours = Math.floor(boundedMinutes / 60);
+      const minutes = boundedMinutes % 60;
+      return toTimeString(hours, minutes);
+    }
+
+    const fraction = ((value % 1) + 1) % 1;
+    const totalMinutes = Math.round(fraction * 24 * 60) % (24 * 60);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return toTimeString(hours, minutes);
+  }
+
+  const text = String(value || "").trim();
+  if (!text) return null;
+
+  const basicMatch = text.match(
+    /^(\d{1,2})(?::(\d{2}))?\s*(am|pm|AM|PM)?$/,
+  );
+  if (basicMatch) {
+    let hours = Number(basicMatch[1]);
+    const minutes = Number(basicMatch[2] || "0");
+    const period = String(basicMatch[3] || "").toLowerCase();
+
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+    if (minutes < 0 || minutes > 59) return null;
+
+    if (period) {
+      if (hours < 1 || hours > 12) return null;
+      if (period === "pm" && hours !== 12) hours += 12;
+      if (period === "am" && hours === 12) hours = 0;
+    } else if (hours < 0 || hours > 23) {
+      return null;
+    }
+
+    return toTimeString(hours, minutes);
+  }
+
+  const dateAttempt = new Date(`1970-01-01T${text}`);
+  if (!Number.isNaN(dateAttempt.getTime())) {
+    return toTimeString(dateAttempt.getHours(), dateAttempt.getMinutes());
+  }
+
+  return null;
+};
+
+const parseTimeRange = (value) => {
+  const text = String(value || "").trim();
+  if (!text) return { startTime: null, endTime: null };
+
+  const parts = text
+    .split(/\s*(?:-|–|—|to)\s*/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return { startTime: null, endTime: null };
+
+  return {
+    startTime: parseTimeValue(parts[0]),
+    endTime: parseTimeValue(parts[1]),
+  };
+};
+
+const isRowEmpty = (row) => {
+  if (!row || typeof row !== "object") return true;
+  return Object.values(row).every(
+    (value) => String(value === null || value === undefined ? "" : value).trim() === "",
+  );
+};
+
+const pickFromRow = (rowMap, keys) => {
+  for (const key of keys) {
+    const token = normalizeHeaderToken(key);
+    if (rowMap.has(token)) return rowMap.get(token);
+  }
+  return null;
+};
+
+const DAY_KEYS = ["day", "weekday", "dayofweek", "week_day", "week day"];
+const START_KEYS = [
+  "start",
+  "starttime",
+  "start time",
+  "from",
+  "timefrom",
+  "begin",
+  "begin time",
+];
+const END_KEYS = [
+  "end",
+  "endtime",
+  "end time",
+  "to",
+  "timeto",
+  "finish",
+  "finish time",
+];
+const RANGE_KEYS = ["time", "timerange", "time range", "slot", "period"];
+const TITLE_KEYS = [
+  "title",
+  "subject",
+  "class",
+  "course",
+  "lesson",
+  "activity",
+  "topic",
+  "session",
+];
+const ROOM_KEYS = ["room", "location", "venue", "classroom", "hall"];
+const INSTRUCTOR_KEYS = ["instructor", "teacher", "lecturer", "tutor", "staff"];
+
+const parseImportedScheduleRows = (rows, { defaultInstructor } = {}) => {
+  if (!Array.isArray(rows)) return { classes: [], skipped: [] };
+
+  const classes = [];
+  const skipped = [];
+
+  rows.forEach((row, index) => {
+    const rowNumber = index + 2;
+    if (isRowEmpty(row)) return;
+
+    const rowMap = new Map(
+      Object.entries(row || {}).map(([key, value]) => [
+        normalizeHeaderToken(key),
+        value,
+      ]),
+    );
+
+    const dayRaw = pickFromRow(rowMap, DAY_KEYS);
+    const startRaw = pickFromRow(rowMap, START_KEYS);
+    const endRaw = pickFromRow(rowMap, END_KEYS);
+    const rangeRaw = pickFromRow(rowMap, RANGE_KEYS);
+    const titleRaw = pickFromRow(rowMap, TITLE_KEYS);
+    const roomRaw = pickFromRow(rowMap, ROOM_KEYS);
+    const instructorRaw = pickFromRow(rowMap, INSTRUCTOR_KEYS);
+
+    const day = parseDayValue(dayRaw);
+
+    const rangeTimes = parseTimeRange(rangeRaw);
+    const startTime = parseTimeValue(startRaw) || rangeTimes.startTime;
+    const endTime = parseTimeValue(endRaw) || rangeTimes.endTime;
+    const title = toTextOrNull(titleRaw);
+    const room = toTextOrNull(roomRaw);
+    const instructor = toTextOrNull(instructorRaw) || toTextOrNull(defaultInstructor);
+
+    if (day === null) {
+      skipped.push({ row: rowNumber, reason: "Missing or invalid day value." });
+      return;
+    }
+    if (!startTime || !endTime) {
+      skipped.push({ row: rowNumber, reason: "Missing or invalid start/end time." });
+      return;
+    }
+
+    const startMinutes = timeToMinutes(startTime);
+    const endMinutes = timeToMinutes(endTime);
+    if (
+      startMinutes === null ||
+      endMinutes === null ||
+      endMinutes <= startMinutes
+    ) {
+      skipped.push({
+        row: rowNumber,
+        reason: "End time must be later than start time.",
+      });
+      return;
+    }
+
+    if (!title) {
+      skipped.push({ row: rowNumber, reason: "Missing class title/subject." });
+      return;
+    }
+
+    if (classes.length >= 300) {
+      skipped.push({ row: rowNumber, reason: "Maximum 300 rows are allowed." });
+      return;
+    }
+
+    classes.push({
+      day,
+      startTime,
+      endTime,
+      title: title.slice(0, 220),
+      room: room ? room.slice(0, 120) : null,
+      instructor: instructor ? instructor.slice(0, 120) : null,
+    });
+  });
+
+  return { classes, skipped };
+};
+
+const parseBooleanInput = (value) => {
+  const text = String(value || "")
+    .trim()
+    .toLowerCase();
+  return text === "1" || text === "true" || text === "yes" || text === "on";
+};
+
+const resolveTeacherById = async (teacherId) => {
+  const { rows } = await query(
+    `SELECT u.id,
+            u.email,
+            p.first_name AS "firstName",
+            p.last_name AS "lastName"
+       FROM users u
+       LEFT JOIN user_profiles p ON p.user_id = u.id
+      WHERE u.id = $1
+        AND u.role = 'teacher'`,
+    [teacherId],
+  );
+
+  if (!rows[0]) return null;
+  const row = rows[0];
+  return {
+    id: row.id,
+    email: row.email,
+    name:
+      [row.firstName, row.lastName].filter(Boolean).join(" ") ||
+      row.email ||
+      "Teacher",
+  };
+};
+
+const mapScheduleClass = (row) => ({
+  id: row.id,
+  day: row.day,
+  dayLabel: DAY_LABELS[row.day] || `Day ${row.day}`,
+  startTime: formatTime(row.startTime),
+  endTime: formatTime(row.endTime),
+  title: row.title,
+  room: row.room || null,
+  instructor: row.instructor || null,
+});
+
+const uploadDir = path.resolve("uploads");
+fs.mkdirSync(uploadDir, { recursive: true });
+
+const timetableStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadDir),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || "").toLowerCase();
+    const safeBase = path
+      .basename(file.originalname || "timetable", ext)
+      .replace(/[^a-z0-9-_]+/gi, "_")
+      .slice(0, 40);
+    cb(null, `${safeBase || "timetable"}-${Date.now()}${ext}`);
+  },
+});
+
+const timetableUpload = multer({
+  storage: timetableStorage,
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const mime = String(file?.mimetype || "").toLowerCase();
+    const ext = path.extname(file?.originalname || "").toLowerCase();
+    const allowed =
+      TIMETABLE_ALLOWED_MIME_TYPES.has(mime) ||
+      TIMETABLE_ALLOWED_EXTENSIONS.has(ext);
+    if (!allowed) {
+      return cb(
+        new Error("Only Excel, CSV, or image timetable files are allowed."),
+      );
+    }
+    return cb(null, true);
+  },
+});
+
+const removeUploadedFile = async (filePath) => {
+  if (!filePath) return;
+  try {
+    await fs.promises.unlink(filePath);
+  } catch (_) {
+  }
+};
 
 router.get("/search", async (req, res, next) => {
   try {
@@ -1618,6 +2010,321 @@ router.put("/lesson-progress", async (req, res, next) => {
     return next(error);
   }
 });
+
+router.get("/teacher-schedule", async (req, res, next) => {
+  try {
+    const teacherId = String(req.query.teacherId || "").trim();
+    if (!isUuid(teacherId)) {
+      return res.status(400).json({ error: "Valid teacherId is required." });
+    }
+
+    const teacher = await resolveTeacherById(teacherId);
+    if (!teacher) {
+      return res.status(404).json({ error: "Teacher not found." });
+    }
+
+    const { rows } = await query(
+      `SELECT id,
+              day_of_week AS "day",
+              start_time AS "startTime",
+              end_time AS "endTime",
+              title,
+              room,
+              instructor
+         FROM schedule_classes
+        WHERE user_id = $1
+        ORDER BY day_of_week, start_time`,
+      [teacher.id],
+    );
+
+    return res.json({
+      teacher,
+      classes: rows.map(mapScheduleClass),
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/teacher-schedule", async (req, res, next) => {
+  try {
+    const teacherId = String(req.body?.teacherId || "").trim();
+    if (!isUuid(teacherId)) {
+      return res.status(400).json({ error: "Valid teacherId is required." });
+    }
+
+    const teacher = await resolveTeacherById(teacherId);
+    if (!teacher) {
+      return res.status(404).json({ error: "Teacher not found." });
+    }
+
+    const day = parseDayValue(req.body?.day);
+    const startTime = parseTimeValue(req.body?.startTime);
+    const endTime = parseTimeValue(req.body?.endTime);
+    const title = toTextOrNull(req.body?.title);
+    const room = toTextOrNull(req.body?.room);
+    const instructor =
+      toTextOrNull(req.body?.instructor) || toTextOrNull(teacher.name);
+
+    if (day === null || !startTime || !endTime || !title) {
+      return res.status(400).json({
+        error: "day, startTime, endTime, and title are required.",
+      });
+    }
+
+    const startMinutes = timeToMinutes(startTime);
+    const endMinutes = timeToMinutes(endTime);
+    if (
+      startMinutes === null ||
+      endMinutes === null ||
+      endMinutes <= startMinutes
+    ) {
+      return res.status(400).json({
+        error: "End time must be later than start time.",
+      });
+    }
+
+    const { rows } = await query(
+      `INSERT INTO schedule_classes (
+          user_id,
+          day_of_week,
+          start_time,
+          end_time,
+          title,
+          room,
+          instructor
+        )
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id,
+                 day_of_week AS "day",
+                 start_time AS "startTime",
+                 end_time AS "endTime",
+                 title,
+                 room,
+                 instructor`,
+      [teacher.id, day, startTime, endTime, title, room, instructor],
+    );
+
+    await logAudit(req, "admin_teacher_schedule_add", {
+      teacherId: teacher.id,
+      title,
+      day,
+      startTime,
+      endTime,
+    });
+
+    return res.status(201).json({
+      teacher,
+      class: mapScheduleClass(rows[0]),
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/teacher-schedule/:id", async (req, res, next) => {
+  try {
+    const classId = String(req.params.id || "").trim();
+    if (!isUuid(classId)) {
+      return res.status(400).json({ error: "Invalid timetable class id." });
+    }
+
+    const teacherIdRaw = String(req.query.teacherId || "").trim();
+    const teacherId = teacherIdRaw ? teacherIdRaw : null;
+    if (teacherId && !isUuid(teacherId)) {
+      return res.status(400).json({ error: "Invalid teacherId." });
+    }
+
+    const { rows } = await query(
+      `DELETE FROM schedule_classes
+        WHERE id = $1
+          AND ($2::uuid IS NULL OR user_id = $2)
+      RETURNING id,
+                user_id AS "teacherId",
+                day_of_week AS "day",
+                start_time AS "startTime",
+                end_time AS "endTime",
+                title`,
+      [classId, teacherId],
+    );
+
+    if (!rows[0]) {
+      return res.status(404).json({ error: "Timetable class not found." });
+    }
+
+    await logAudit(req, "admin_teacher_schedule_delete", {
+      teacherId: rows[0].teacherId,
+      classId,
+      title: rows[0].title,
+      day: rows[0].day,
+      startTime: formatTime(rows[0].startTime),
+      endTime: formatTime(rows[0].endTime),
+    });
+
+    return res.json({ success: true, id: classId });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post(
+  "/teacher-schedule/import",
+  uploadLimiter,
+  timetableUpload.single("file"),
+  async (req, res, next) => {
+    const uploadedPath = req.file?.path || null;
+    try {
+      const teacherId = String(req.body?.teacherId || "").trim();
+      const replaceExisting = parseBooleanInput(req.body?.replaceExisting);
+
+      if (!isUuid(teacherId)) {
+        return res.status(400).json({ error: "Valid teacherId is required." });
+      }
+
+      const teacher = await resolveTeacherById(teacherId);
+      if (!teacher) {
+        return res.status(404).json({ error: "Teacher not found." });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ error: "Upload a timetable file first." });
+      }
+
+      const ext = path.extname(req.file.originalname || "").toLowerCase();
+      const mime = String(req.file.mimetype || "").toLowerCase();
+      const isImageUpload =
+        mime.startsWith("image/") ||
+        [".png", ".jpg", ".jpeg", ".webp"].includes(ext);
+
+      let normalizedRows = { classes: [], skipped: [] };
+
+      if (isImageUpload) {
+        if (!isGeminiEnabled()) {
+          return res.status(400).json({
+            error:
+              "Image timetable parsing requires Gemini API keys in backend environment.",
+          });
+        }
+
+        const parsed = await extractTimetableFromImageWithGemini({
+          imagePath: req.file.path,
+          mimeType: req.file.mimetype,
+          teacherName: teacher.name,
+        });
+
+        normalizedRows = parseImportedScheduleRows(parsed?.rows || [], {
+          defaultInstructor: teacher.name,
+        });
+      } else {
+        let parsedRows = [];
+        try {
+          const workbook = XLSX.readFile(req.file.path, { cellDates: true });
+          const sheetName = workbook.SheetNames?.[0];
+          if (!sheetName) {
+            return res.status(400).json({
+              error: "The uploaded file does not contain any worksheet.",
+            });
+          }
+          const worksheet = workbook.Sheets[sheetName];
+          parsedRows = XLSX.utils.sheet_to_json(worksheet, {
+            defval: "",
+            raw: false,
+          });
+        } catch (_) {
+          return res.status(400).json({
+            error: "Could not read spreadsheet. Upload a valid Excel/CSV file.",
+          });
+        }
+        normalizedRows = parseImportedScheduleRows(parsedRows, {
+          defaultInstructor: teacher.name,
+        });
+      }
+
+      if (!normalizedRows.classes.length) {
+        return res.status(400).json({
+          error: "No valid timetable rows were found in the uploaded file.",
+          skipped: normalizedRows.skipped,
+        });
+      }
+
+      const inserted = [];
+      let replacedCount = 0;
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        if (replaceExisting) {
+          const deleteResult = await client.query(
+            `DELETE FROM schedule_classes
+              WHERE user_id = $1`,
+            [teacher.id],
+          );
+          replacedCount = deleteResult.rowCount || 0;
+        }
+
+        for (const item of normalizedRows.classes) {
+          const { rows } = await client.query(
+            `INSERT INTO schedule_classes (
+                user_id,
+                day_of_week,
+                start_time,
+                end_time,
+                title,
+                room,
+                instructor
+              )
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+          RETURNING id,
+                    day_of_week AS "day",
+                    start_time AS "startTime",
+                    end_time AS "endTime",
+                    title,
+                    room,
+                    instructor`,
+            [
+              teacher.id,
+              item.day,
+              item.startTime,
+              item.endTime,
+              item.title,
+              item.room,
+              item.instructor,
+            ],
+          );
+          if (rows[0]) inserted.push(rows[0]);
+        }
+
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+
+      await logAudit(req, "admin_teacher_schedule_import", {
+        teacherId: teacher.id,
+        source: isImageUpload ? "image" : "spreadsheet",
+        replaceExisting,
+        importedCount: inserted.length,
+        skippedCount: normalizedRows.skipped.length,
+      });
+
+      return res.json({
+        teacher,
+        source: isImageUpload ? "image" : "spreadsheet",
+        replaceExisting,
+        replacedCount,
+        importedCount: inserted.length,
+        skipped: normalizedRows.skipped,
+        classes: inserted.map(mapScheduleClass),
+      });
+    } catch (error) {
+      return next(error);
+    } finally {
+      await removeUploadedFile(uploadedPath);
+    }
+  },
+);
 
 export default router;
 

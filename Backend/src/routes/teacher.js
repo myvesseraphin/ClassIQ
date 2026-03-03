@@ -125,6 +125,238 @@ const toNumberOrNull = (value) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+const normalizeComparableText = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+
+const normalizeChoiceToken = (value) => {
+  const direct = String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-H]/g, "");
+  if (direct) return direct[0];
+  return "";
+};
+
+const isMultipleChoiceType = (value) => {
+  const type = String(value || "").toLowerCase();
+  return (
+    type.includes("choice") ||
+    type.includes("multiple") ||
+    type.includes("mcq")
+  );
+};
+
+const isTrueFalseType = (value) => {
+  const type = String(value || "").toLowerCase();
+  return (
+    type.includes("true/false") ||
+    type.includes("true false") ||
+    type.includes("boolean")
+  );
+};
+
+const isOpenEndedType = (value) => {
+  const type = String(value || "").toLowerCase();
+  return (
+    type.includes("short") ||
+    type.includes("open") ||
+    type.includes("essay") ||
+    type.includes("long")
+  );
+};
+
+const STOP_WORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "that",
+  "this",
+  "from",
+  "into",
+  "your",
+  "their",
+  "they",
+  "them",
+  "you",
+  "are",
+  "was",
+  "were",
+  "have",
+  "has",
+  "had",
+  "can",
+  "could",
+  "will",
+  "would",
+  "about",
+  "then",
+  "than",
+  "what",
+  "when",
+  "where",
+  "which",
+  "while",
+  "also",
+  "not",
+  "only",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+]);
+
+const tokenizeForOverlap = (value) =>
+  normalizeComparableText(value)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length > 2 && !STOP_WORDS.has(token));
+
+const scoreOpenEndedAnswer = (submittedAnswer, correctAnswer, points) => {
+  const maxPoints = Number.isFinite(points) ? points : 1;
+  const submittedText = normalizeComparableText(submittedAnswer);
+  if (!submittedText) {
+    return { earnedPoints: 0, isCorrect: false, needsTeacherReview: false };
+  }
+
+  const expectedText = normalizeComparableText(correctAnswer);
+  if (!expectedText) {
+    return {
+      earnedPoints: 0,
+      isCorrect: false,
+      needsTeacherReview: true,
+    };
+  }
+
+  if (submittedText === expectedText) {
+    return {
+      earnedPoints: maxPoints,
+      isCorrect: true,
+      needsTeacherReview: false,
+    };
+  }
+
+  const expectedTokens = Array.from(new Set(tokenizeForOverlap(correctAnswer)));
+  const submittedTokens = new Set(tokenizeForOverlap(submittedAnswer));
+
+  if (expectedTokens.length === 0) {
+    const includesExpected =
+      submittedText.includes(expectedText) || expectedText.includes(submittedText);
+    const earnedPoints = includesExpected ? maxPoints * 0.8 : maxPoints * 0.3;
+    return {
+      earnedPoints,
+      isCorrect: earnedPoints >= maxPoints * 0.95,
+      needsTeacherReview:
+        earnedPoints >= maxPoints * 0.35 && earnedPoints < maxPoints * 0.75,
+    };
+  }
+
+  let overlap = 0;
+  expectedTokens.forEach((token) => {
+    if (submittedTokens.has(token)) overlap += 1;
+  });
+  const overlapRatio = overlap / expectedTokens.length;
+
+  let scoreRatio = 0.15;
+  if (overlapRatio >= 0.8) scoreRatio = 1;
+  else if (overlapRatio >= 0.6) scoreRatio = 0.75;
+  else if (overlapRatio >= 0.4) scoreRatio = 0.55;
+  else if (overlapRatio >= 0.25) scoreRatio = 0.35;
+
+  const earnedPoints = maxPoints * scoreRatio;
+  return {
+    earnedPoints,
+    isCorrect: scoreRatio >= 0.95,
+    needsTeacherReview: scoreRatio >= 0.35 && scoreRatio < 0.8,
+  };
+};
+
+const gradeExerciseQuestion = ({
+  questionType,
+  submittedAnswer,
+  correctAnswer,
+  points,
+}) => {
+  const safePoints = Number.isFinite(points) ? points : 1;
+  const submittedText = String(submittedAnswer || "").trim();
+  if (!submittedText) {
+    return {
+      countInScore: true,
+      earnedPoints: 0,
+      isCorrect: false,
+      needsTeacherReview: false,
+      mode: "auto",
+    };
+  }
+
+  if (!String(correctAnswer || "").trim()) {
+    return {
+      countInScore: false,
+      earnedPoints: 0,
+      isCorrect: false,
+      needsTeacherReview: isOpenEndedType(questionType),
+      mode: "auto",
+    };
+  }
+
+  if (isMultipleChoiceType(questionType)) {
+    const submittedChoice = normalizeChoiceToken(submittedText);
+    const correctChoice = normalizeChoiceToken(correctAnswer);
+    const isCorrect =
+      (submittedChoice && correctChoice && submittedChoice === correctChoice) ||
+      normalizeComparableText(submittedText) === normalizeComparableText(correctAnswer);
+    return {
+      countInScore: true,
+      earnedPoints: isCorrect ? safePoints : 0,
+      isCorrect,
+      needsTeacherReview: false,
+      mode: "auto",
+    };
+  }
+
+  if (isTrueFalseType(questionType)) {
+    const normalizeBoolean = (value) => {
+      const text = normalizeComparableText(value);
+      if (["true", "t", "yes", "y", "1"].includes(text)) return "true";
+      if (["false", "f", "no", "n", "0"].includes(text)) return "false";
+      return text;
+    };
+    const isCorrect = normalizeBoolean(submittedText) === normalizeBoolean(correctAnswer);
+    return {
+      countInScore: true,
+      earnedPoints: isCorrect ? safePoints : 0,
+      isCorrect,
+      needsTeacherReview: false,
+      mode: "auto",
+    };
+  }
+
+  if (isOpenEndedType(questionType)) {
+    const openScore = scoreOpenEndedAnswer(submittedText, correctAnswer, safePoints);
+    return {
+      countInScore: true,
+      earnedPoints: openScore.earnedPoints,
+      isCorrect: openScore.isCorrect,
+      needsTeacherReview: openScore.needsTeacherReview,
+      mode: "hybrid_open",
+    };
+  }
+
+  const exactMatch =
+    normalizeComparableText(submittedText) === normalizeComparableText(correctAnswer);
+  return {
+    countInScore: true,
+    earnedPoints: exactMatch ? safePoints : 0,
+    isCorrect: exactMatch,
+    needsTeacherReview: false,
+    mode: "auto",
+  };
+};
+
 const parseMarkValue = (row, keys) => {
   for (const key of keys) {
     if (!Object.prototype.hasOwnProperty.call(row, key)) continue;
@@ -1217,6 +1449,167 @@ const ensureExerciseAssignmentMeta = async () => {
     exerciseAssignmentMetaReady = false;
     return false;
   }
+};
+
+let exerciseAnswerTeacherReviewMetaReady = null;
+const ensureExerciseAnswerTeacherReviewMeta = async () => {
+  if (exerciseAnswerTeacherReviewMetaReady === true) return true;
+  try {
+    await query(
+      `ALTER TABLE exercise_answers
+         ADD COLUMN IF NOT EXISTS teacher_score numeric`,
+    );
+    await query(
+      `ALTER TABLE exercise_answers
+         ADD COLUMN IF NOT EXISTS teacher_feedback text`,
+    );
+    await query(
+      `ALTER TABLE exercise_answers
+         ADD COLUMN IF NOT EXISTS reviewed_by_teacher_id uuid REFERENCES users(id) ON DELETE SET NULL`,
+    );
+    await query(
+      `ALTER TABLE exercise_answers
+         ADD COLUMN IF NOT EXISTS reviewed_at timestamptz`,
+    );
+    await query(
+      `CREATE INDEX IF NOT EXISTS exercise_answers_reviewed_by_teacher_idx
+          ON exercise_answers(reviewed_by_teacher_id)`,
+    );
+
+    const { rows } = await query(
+      `SELECT EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_name = 'exercise_answers'
+             AND column_name = 'teacher_score'
+        ) AS "hasTeacherScore",
+        EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_name = 'exercise_answers'
+             AND column_name = 'teacher_feedback'
+        ) AS "hasTeacherFeedback",
+        EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_name = 'exercise_answers'
+             AND column_name = 'reviewed_by_teacher_id'
+        ) AS "hasReviewedByTeacherId",
+        EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_name = 'exercise_answers'
+             AND column_name = 'reviewed_at'
+        ) AS "hasReviewedAt"`,
+    );
+    const ready =
+      Boolean(rows[0]?.hasTeacherScore) &&
+      Boolean(rows[0]?.hasTeacherFeedback) &&
+      Boolean(rows[0]?.hasReviewedByTeacherId) &&
+      Boolean(rows[0]?.hasReviewedAt);
+    exerciseAnswerTeacherReviewMetaReady = ready;
+    return ready;
+  } catch (error) {
+    console.error("Failed to ensure exercise answer teacher review columns", error);
+    exerciseAnswerTeacherReviewMetaReady = false;
+    return false;
+  }
+};
+
+const evaluateExerciseReviewRows = (questionRows = []) => {
+  const mapped = [];
+  let totalPoints = 0;
+  let earnedPoints = 0;
+  let pendingTeacher = 0;
+  let teacherReviewed = 0;
+
+  for (const row of questionRows) {
+    const safePoints = Number.isFinite(Number(row.points))
+      ? Number(row.points)
+      : 1;
+    const submittedAnswer = String(row.studentAnswer || "");
+    const correctAnswer = String(row.correctAnswer || "");
+    const teacherScoreRaw =
+      row.teacherScore === null || row.teacherScore === undefined
+        ? null
+        : Number(row.teacherScore);
+    const hasTeacherOverride =
+      isOpenEndedType(row.type) && Number.isFinite(teacherScoreRaw);
+    const teacherScore = hasTeacherOverride
+      ? clamp(teacherScoreRaw, 0, safePoints)
+      : null;
+
+    let grading;
+    if (hasTeacherOverride) {
+      grading = {
+        countInScore: true,
+        earnedPoints: teacherScore,
+        isCorrect: teacherScore >= safePoints * 0.95,
+        needsTeacherReview: false,
+        mode: "teacher_review",
+      };
+    } else {
+      grading = gradeExerciseQuestion({
+        questionType: row.type,
+        submittedAnswer,
+        correctAnswer,
+        points: safePoints,
+      });
+    }
+
+    if (grading.countInScore) {
+      totalPoints += safePoints;
+      earnedPoints += clamp(Number(grading.earnedPoints) || 0, 0, safePoints);
+    }
+
+    if (grading.needsTeacherReview) {
+      pendingTeacher += 1;
+    } else if (grading.mode === "teacher_review") {
+      teacherReviewed += 1;
+    }
+
+    mapped.push({
+      id: row.id,
+      order: row.order,
+      type: row.type || "Question",
+      text: row.text || "",
+      correctAnswer,
+      studentAnswer: submittedAnswer,
+      points: safePoints,
+      teacherScore,
+      teacherFeedback: row.teacherFeedback || null,
+      reviewedByTeacherId: row.reviewedByTeacherId || null,
+      reviewedAt: row.reviewedAt || null,
+      isCorrect: Boolean(grading.isCorrect),
+      earnedPoints: Number(Number(grading.earnedPoints || 0).toFixed(2)),
+      needsTeacherReview: Boolean(grading.needsTeacherReview),
+      gradingMode: grading.mode || "auto",
+    });
+  }
+
+  const score =
+    totalPoints > 0
+      ? clamp(Math.round((earnedPoints / totalPoints) * 100), 0, 100)
+      : null;
+  const status =
+    pendingTeacher > 0
+      ? "waiting_teacher_review"
+      : teacherReviewed > 0
+        ? "teacher_graded"
+        : "ai_graded";
+
+  return {
+    questions: mapped,
+    summary: {
+      totalPoints,
+      earnedPoints: Number(earnedPoints.toFixed(2)),
+      score,
+      pendingTeacher,
+      teacherReviewed,
+      autoReviewed: Math.max(mapped.length - pendingTeacher - teacherReviewed, 0),
+      status,
+    },
+  };
 };
 
 router.get("/profile", async (req, res, next) => {
@@ -5176,7 +5569,7 @@ router.post(
               normalizedQuestions.length,
               assignment.subjectId || null,
               req.user.id,
-              "teacher_class_upload",
+              studentId ? "teacher_student_upload" : "teacher_class_upload",
             ]
           : [
               student.id,
@@ -5282,14 +5675,33 @@ router.post(
 router.post("/exercises/generate", aiLimiter, async (req, res, next) => {
   try {
     const supportsExerciseMeta = await ensureExerciseAssignmentMeta();
-    const { assignmentId, studentId, questionCount, difficulty, weakArea } =
-      req.body || {};
+    const {
+      assignmentId,
+      studentId,
+      questionCount,
+      difficulty,
+      weakArea,
+      targetType,
+      assignmentScope,
+    } = req.body || {};
+
+    const resolvedTargetType = String(
+      targetType || assignmentScope || "student",
+    )
+      .trim()
+      .toLowerCase();
+    const isClassTarget = resolvedTargetType === "class";
 
     if (!isUuid(assignmentId)) {
       return res.status(400).json({ error: "Invalid class assignment id." });
     }
     if (!isUuid(studentId)) {
       return res.status(400).json({ error: "Invalid student id." });
+    }
+    if (!["class", "student"].includes(resolvedTargetType)) {
+      return res
+        .status(400)
+        .json({ error: "Invalid target type. Use class or student." });
     }
 
     const { rows: assignmentRows } = await query(
@@ -5334,20 +5746,55 @@ router.post("/exercises/generate", aiLimiter, async (req, res, next) => {
       });
     }
 
-    const { rows: latestRows } = await query(
-      `SELECT weak_area AS "weakArea",
-              grade_percent AS "gradePercent"
-         FROM assessments
-        WHERE user_id = $1
-          AND subject = $2
-        ORDER BY assessment_date DESC NULLS LAST, created_at DESC
-        LIMIT 1`,
-      [student.id, assignment.subject],
-    );
+    const [{ rows: latestRows }, { rows: classWeakAreaRows }] =
+      await Promise.all([
+        query(
+          `SELECT weak_area AS "weakArea",
+                  grade_percent AS "gradePercent"
+             FROM assessments
+            WHERE user_id = $1
+              AND subject = $2
+            ORDER BY assessment_date DESC NULLS LAST, created_at DESC
+            LIMIT 1`,
+          [student.id, assignment.subject],
+        ),
+        query(
+          `SELECT trim(a.weak_area) AS "weakArea",
+                  COUNT(*)::int AS count,
+                  MAX(a.assessment_date) AS "latestAssessmentDate",
+                  MAX(a.created_at) AS "latestCreatedAt"
+             FROM assessments a
+             JOIN user_profiles p ON p.user_id = a.user_id
+            WHERE a.weak_area IS NOT NULL
+              AND trim(a.weak_area) <> ''
+              AND (
+                $1::text IS NULL
+                OR lower(trim(a.subject)) = lower(trim($1))
+              )
+              AND (
+                ($2::uuid IS NOT NULL AND p.class_id = $2)
+                OR ($2::uuid IS NULL AND p.grade_level = $3 AND p.class_name = $4)
+              )
+            GROUP BY trim(a.weak_area)
+            ORDER BY count DESC,
+                     "latestAssessmentDate" DESC NULLS LAST,
+                     "latestCreatedAt" DESC NULLS LAST,
+                     "weakArea"
+            LIMIT 1`,
+          [
+            assignment.subject || null,
+            assignment.classId || null,
+            assignment.gradeLevel || null,
+            assignment.className || null,
+          ],
+        ),
+      ]);
 
     const latest = latestRows[0] || {};
+    const classWeakArea = String(classWeakAreaRows[0]?.weakArea || "").trim();
     const resolvedWeakArea =
       String(weakArea || "").trim() ||
+      classWeakArea ||
       String(latest.weakArea || "").trim() ||
       inferWeakArea({
         subject: assignment.subject,
@@ -5527,7 +5974,7 @@ router.post("/exercises/generate", aiLimiter, async (req, res, next) => {
           selectedQuestions.length,
           assignment.subjectId || null,
           req.user.id,
-          "teacher_generated",
+          isClassTarget ? "teacher_class_generated" : "teacher_student_generated",
         ]
       : [
           student.id,
@@ -5794,6 +6241,7 @@ router.get("/exercises/:id/review", async (req, res, next) => {
       return res.status(403).json({ error: "No assigned students." });
     }
 
+    await ensureExerciseAnswerTeacherReviewMeta();
     const supportsExerciseMeta = await ensureExerciseAssignmentMeta();
     const { rows: exerciseRows } = await query(
       `SELECT e.id,
@@ -5863,7 +6311,11 @@ router.get("/exercises/:id/review", async (req, res, next) => {
               q.question_type AS "type",
               q.correct_answer AS "correctAnswer",
               COALESCE(q.points, 1) AS points,
-              a.answer_text AS "studentAnswer"
+              a.answer_text AS "studentAnswer",
+              a.teacher_score AS "teacherScore",
+              a.teacher_feedback AS "teacherFeedback",
+              a.reviewed_by_teacher_id AS "reviewedByTeacherId",
+              a.reviewed_at AS "reviewedAt"
          FROM exercise_questions q
          LEFT JOIN exercise_answers a
            ON a.question_id = q.id
@@ -5871,6 +6323,237 @@ router.get("/exercises/:id/review", async (req, res, next) => {
         WHERE q.exercise_id = $1
         ORDER BY q.question_order`,
       [exerciseId, exercise.submissionId],
+    );
+
+    const evaluation = evaluateExerciseReviewRows(questionRows);
+    const resolvedScore =
+      evaluation.summary.score === null || evaluation.summary.score === undefined
+        ? exercise.submissionScore === null || exercise.submissionScore === undefined
+          ? null
+          : Number(exercise.submissionScore)
+        : Number(evaluation.summary.score);
+
+    return res.json({
+      exercise: {
+        id: exercise.id,
+        name: exercise.name,
+        subject: exercise.subject,
+        difficulty: exercise.difficulty,
+        questionCount: exercise.questionCount,
+        date: formatShortDate(exercise.exerciseDate),
+        assignmentOrigin: exercise.assignmentOrigin || null,
+      },
+      student: {
+        id: exercise.studentId,
+        email: exercise.studentEmail,
+        name:
+          [exercise.firstName, exercise.lastName].filter(Boolean).join(" ") ||
+          exercise.studentEmail ||
+          "Student",
+        studentNumber: exercise.studentNumber || null,
+        className: exercise.className || null,
+        gradeLevel: exercise.gradeLevel || null,
+      },
+      submission: {
+        id: exercise.submissionId,
+        status: exercise.submissionStatus || "submitted",
+        score: resolvedScore,
+        submittedAt: exercise.submittedAt || exercise.submissionCreatedAt || null,
+        attemptCount: Number(exercise.attemptCount) || 1,
+        reviewStatus: evaluation.summary.status,
+        pendingTeacherCount: evaluation.summary.pendingTeacher,
+        teacherReviewedCount: evaluation.summary.teacherReviewed,
+        aiReviewedCount: evaluation.summary.autoReviewed,
+      },
+      questions: evaluation.questions,
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/exercises/:id/review", async (req, res, next) => {
+  try {
+    const exerciseId = req.params.id;
+    if (!isUuid(exerciseId)) {
+      return res.status(400).json({ error: "Invalid exercise id." });
+    }
+
+    const questionId = String(req.body?.questionId || "").trim();
+    if (!isUuid(questionId)) {
+      return res.status(400).json({ error: "Invalid question id." });
+    }
+
+    const requestedScore = req.body?.teacherScore;
+    const numericScore = Number(requestedScore);
+    if (!Number.isFinite(numericScore)) {
+      return res.status(400).json({ error: "Teacher score must be a valid number." });
+    }
+
+    const teacherFeedbackRaw = String(req.body?.teacherFeedback || "").trim();
+    const teacherFeedback = teacherFeedbackRaw ? teacherFeedbackRaw.slice(0, 2000) : null;
+
+    const { studentIds } = await getAssignedStudentIds(req.user.id);
+    if (!studentIds.length) {
+      return res.status(403).json({ error: "No assigned students." });
+    }
+
+    await ensureExerciseAnswerTeacherReviewMeta();
+    const supportsExerciseMeta = await ensureExerciseAssignmentMeta();
+
+    const { rows: exerciseRows } = await query(
+      `SELECT e.id,
+              e.name,
+              e.subject,
+              e.difficulty,
+              e.question_count AS "questionCount",
+              e.exercise_date AS "exerciseDate",
+              ${
+                supportsExerciseMeta
+                  ? `e.assignment_origin AS "assignmentOrigin",`
+                  : `NULL::text AS "assignmentOrigin",`
+              }
+              latest.id AS "submissionId",
+              latest.status AS "submissionStatus",
+              latest.score AS "submissionScore",
+              latest.submitted_at AS "submittedAt",
+              latest.created_at AS "submissionCreatedAt",
+              attempts.count AS "attemptCount",
+              u.id AS "studentId",
+              u.email AS "studentEmail",
+              p.first_name AS "firstName",
+              p.last_name AS "lastName",
+              p.student_id AS "studentNumber",
+              p.class_name AS "className",
+              p.grade_level AS "gradeLevel"
+         FROM exercises e
+         JOIN users u ON u.id = e.user_id
+         LEFT JOIN user_profiles p ON p.user_id = u.id
+         LEFT JOIN LATERAL (
+           SELECT es.id,
+                  es.status,
+                  es.score,
+                  es.submitted_at,
+                  es.created_at
+             FROM exercise_submissions es
+            WHERE es.exercise_id = e.id
+              AND es.user_id = e.user_id
+            ORDER BY es.created_at DESC
+            LIMIT 1
+         ) latest ON TRUE
+         LEFT JOIN LATERAL (
+           SELECT COUNT(*)::int AS count
+             FROM exercise_submissions es
+            WHERE es.exercise_id = e.id
+              AND es.user_id = e.user_id
+         ) attempts ON TRUE
+        WHERE e.id = $1
+          AND e.user_id = ANY($2::uuid[])`,
+      [exerciseId, studentIds],
+    );
+
+    const exercise = exerciseRows[0];
+    if (!exercise) {
+      return res.status(404).json({ error: "Exercise not found." });
+    }
+    if (!exercise.submissionId) {
+      return res.status(400).json({ error: "No submission found for this exercise yet." });
+    }
+
+    const { rows: questionMetaRows } = await query(
+      `SELECT q.id,
+              q.question_type AS "type",
+              COALESCE(q.points, 1) AS points,
+              a.id AS "answerId"
+         FROM exercise_questions q
+         LEFT JOIN exercise_answers a
+           ON a.question_id = q.id
+          AND a.submission_id = $3
+        WHERE q.exercise_id = $1
+          AND q.id = $2
+        LIMIT 1`,
+      [exerciseId, questionId, exercise.submissionId],
+    );
+
+    const questionMeta = questionMetaRows[0];
+    if (!questionMeta) {
+      return res.status(404).json({ error: "Question not found in this exercise." });
+    }
+    if (!isOpenEndedType(questionMeta.type)) {
+      return res.status(400).json({ error: "Teacher grading is only available for open-ended questions." });
+    }
+
+    const safePoints = Number.isFinite(Number(questionMeta.points))
+      ? Number(questionMeta.points)
+      : 1;
+    const safeTeacherScore = clamp(numericScore, 0, safePoints);
+
+    if (questionMeta.answerId) {
+      await query(
+        `UPDATE exercise_answers
+            SET teacher_score = $1,
+                teacher_feedback = $2,
+                reviewed_by_teacher_id = $3,
+                reviewed_at = now()
+          WHERE id = $4`,
+        [safeTeacherScore, teacherFeedback, req.user.id, questionMeta.answerId],
+      );
+    } else {
+      await query(
+        `INSERT INTO exercise_answers (
+            submission_id,
+            question_id,
+            answer_text,
+            teacher_score,
+            teacher_feedback,
+            reviewed_by_teacher_id,
+            reviewed_at
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, now())`,
+        [
+          exercise.submissionId,
+          questionId,
+          "",
+          safeTeacherScore,
+          teacherFeedback,
+          req.user.id,
+        ],
+      );
+    }
+
+    const { rows: questionRows } = await query(
+      `SELECT q.id,
+              q.question_order AS "order",
+              q.question_text AS "text",
+              q.question_type AS "type",
+              q.correct_answer AS "correctAnswer",
+              COALESCE(q.points, 1) AS points,
+              a.answer_text AS "studentAnswer",
+              a.teacher_score AS "teacherScore",
+              a.teacher_feedback AS "teacherFeedback",
+              a.reviewed_by_teacher_id AS "reviewedByTeacherId",
+              a.reviewed_at AS "reviewedAt"
+         FROM exercise_questions q
+         LEFT JOIN exercise_answers a
+           ON a.question_id = q.id
+          AND a.submission_id = $2
+        WHERE q.exercise_id = $1
+        ORDER BY q.question_order`,
+      [exerciseId, exercise.submissionId],
+    );
+
+    const evaluation = evaluateExerciseReviewRows(questionRows);
+    await query(
+      `UPDATE exercise_submissions
+          SET score = $1
+        WHERE id = $2`,
+      [evaluation.summary.score, exercise.submissionId],
+    );
+
+    await createNotification(
+      exercise.studentId,
+      "Exercise review updated",
+      `Your teacher reviewed an open-ended answer in "${exercise.name || "Exercise"}".`,
     );
 
     return res.json({
@@ -5897,23 +6580,15 @@ router.get("/exercises/:id/review", async (req, res, next) => {
       submission: {
         id: exercise.submissionId,
         status: exercise.submissionStatus || "submitted",
-        score:
-          exercise.submissionScore === null ||
-          exercise.submissionScore === undefined
-            ? null
-            : Number(exercise.submissionScore),
+        score: evaluation.summary.score,
         submittedAt: exercise.submittedAt || exercise.submissionCreatedAt || null,
         attemptCount: Number(exercise.attemptCount) || 1,
+        reviewStatus: evaluation.summary.status,
+        pendingTeacherCount: evaluation.summary.pendingTeacher,
+        teacherReviewedCount: evaluation.summary.teacherReviewed,
+        aiReviewedCount: evaluation.summary.autoReviewed,
       },
-      questions: questionRows.map((row) => ({
-        id: row.id,
-        order: row.order,
-        type: row.type || "Question",
-        text: row.text || "",
-        correctAnswer: String(row.correctAnswer || ""),
-        studentAnswer: String(row.studentAnswer || ""),
-        points: Number.isFinite(Number(row.points)) ? Number(row.points) : 1,
-      })),
+      questions: evaluation.questions,
     });
   } catch (error) {
     return next(error);
@@ -6094,6 +6769,8 @@ router.get("/exercises/:id/download", async (req, res, next) => {
     const right = doc.page.width - doc.page.margins.right;
     const contentWidth = right - left;
     const rightColumnX = left + contentWidth * 0.64;
+    const centeredBodyWidth = Math.min(contentWidth * 0.88, 470);
+    const centeredBodyX = left + (contentWidth - centeredBodyWidth) / 2;
     const headerTop = doc.y;
 
     if (hasSchoolLogo) {
@@ -6203,23 +6880,32 @@ router.get("/exercises/:id/download", async (req, res, next) => {
     });
 
     doc.y = Math.max(leftMetaY, rightMetaY) + 10;
-    doc.font("Helvetica-Bold").fontSize(13).fillColor("#0f172a").text("Instructions:");
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(13)
+      .fillColor("#0f172a")
+      .text("Instructions:", centeredBodyX, doc.y, { width: centeredBodyWidth });
     doc.moveDown(0.3);
     [
       "Attempt all questions.",
       "Write clear and complete responses.",
       "Review your answers before submission.",
     ].forEach((line) => {
-      doc.font("Helvetica").fontSize(11).fillColor("#1f2937").text(`- ${line}`, {
-        indent: 10,
-      });
+      doc
+        .font("Helvetica")
+        .fontSize(11)
+        .fillColor("#1f2937")
+        .text(`- ${line}`, centeredBodyX, doc.y, {
+          width: centeredBodyWidth,
+          indent: 10,
+        });
     });
     doc.moveDown(0.4);
     doc
       .strokeColor("#1e293b")
       .lineWidth(1)
-      .moveTo(left, doc.y)
-      .lineTo(right, doc.y)
+      .moveTo(centeredBodyX, doc.y)
+      .lineTo(centeredBodyX + centeredBodyWidth, doc.y)
       .stroke();
     doc.y += 10;
 
@@ -6242,14 +6928,18 @@ router.get("/exercises/:id/download", async (req, res, next) => {
         .font("Helvetica-Bold")
         .fontSize(11.5)
         .fillColor("#0f172a")
-        .text(`Question ${idx + 1}: ${mainLine} /${points} pts`, {
-          width: contentWidth,
+        .text(`Question ${idx + 1}: ${mainLine} /${points} pts`, centeredBodyX, doc.y, {
+          width: centeredBodyWidth,
         });
       lines.forEach((line) => {
-        doc.font("Helvetica").fontSize(11).fillColor("#1f2937").text(line, {
-          width: contentWidth - 12,
-          indent: 12,
-        });
+        doc
+          .font("Helvetica")
+          .fontSize(11)
+          .fillColor("#1f2937")
+          .text(line, centeredBodyX, doc.y, {
+            width: centeredBodyWidth,
+            indent: 12,
+          });
       });
       doc.moveDown(0.8);
     });

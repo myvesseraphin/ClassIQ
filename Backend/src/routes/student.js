@@ -768,11 +768,20 @@ const buildQuestionReviewFeedback = ({
 const inferSubmissionReviewStatus = (questionReviews) => {
   const items = Array.isArray(questionReviews) ? questionReviews : [];
   const pendingTeacher = items.filter((item) => item.needsTeacherReview).length;
-  const autoReviewed = items.length - pendingTeacher;
+  const teacherReviewed = items.filter(
+    (item) => String(item?.gradingMode || "").toLowerCase() === "teacher_review",
+  ).length;
+  const autoReviewed = Math.max(items.length - pendingTeacher - teacherReviewed, 0);
   return {
     pendingTeacher,
     autoReviewed,
-    status: pendingTeacher > 0 ? "waiting_teacher_review" : "ai_graded",
+    teacherReviewed,
+    status:
+      pendingTeacher > 0
+        ? "waiting_teacher_review"
+        : teacherReviewed > 0
+          ? "teacher_graded"
+          : "ai_graded",
   };
 };
 
@@ -1499,6 +1508,51 @@ const hasTeacherExerciseMetaSupport = async () => {
   } catch (error) {
     console.error("Failed to inspect teacher exercise metadata support", error);
     teacherExerciseMetaSupport = false;
+    return false;
+  }
+};
+
+let exerciseAnswerTeacherReviewMetaSupport = null;
+const hasExerciseAnswerTeacherReviewMetaSupport = async () => {
+  if (exerciseAnswerTeacherReviewMetaSupport !== null) {
+    return exerciseAnswerTeacherReviewMetaSupport;
+  }
+  try {
+    const { rows } = await query(
+      `SELECT EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_name = 'exercise_answers'
+             AND column_name = 'teacher_score'
+        ) AS "hasTeacherScore",
+        EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_name = 'exercise_answers'
+             AND column_name = 'teacher_feedback'
+        ) AS "hasTeacherFeedback",
+        EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_name = 'exercise_answers'
+             AND column_name = 'reviewed_by_teacher_id'
+        ) AS "hasReviewedByTeacherId",
+        EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_name = 'exercise_answers'
+             AND column_name = 'reviewed_at'
+        ) AS "hasReviewedAt"`,
+    );
+    exerciseAnswerTeacherReviewMetaSupport =
+      Boolean(rows[0]?.hasTeacherScore) &&
+      Boolean(rows[0]?.hasTeacherFeedback) &&
+      Boolean(rows[0]?.hasReviewedByTeacherId) &&
+      Boolean(rows[0]?.hasReviewedAt);
+    return exerciseAnswerTeacherReviewMetaSupport;
+  } catch (error) {
+    console.error("Failed to inspect exercise answer teacher review support", error);
+    exerciseAnswerTeacherReviewMetaSupport = false;
     return false;
   }
 };
@@ -2934,6 +2988,7 @@ router.get("/assignments", async (req, res, next) => {
 
     let teacherExerciseAssignments = [];
     if (await hasTeacherExerciseMetaSupport()) {
+      const hasTeacherReviewMeta = await hasExerciseAnswerTeacherReviewMetaSupport();
       const { rows: exerciseRows } = await query(
         `SELECT e.id,
                 e.name,
@@ -2951,6 +3006,7 @@ router.get("/assignments", async (req, res, next) => {
                 latest.score AS "submissionScore",
                 latest.submitted_at AS "submittedAt",
                 latest.created_at AS "submissionCreatedAt",
+                review."teacherReviewedCount",
                 attempts.count AS "attemptCount"
            FROM exercises e
            LEFT JOIN user_profiles tp ON tp.user_id = e.assigned_by_teacher_id
@@ -2961,16 +3017,35 @@ router.get("/assignments", async (req, res, next) => {
                     es.submitted_at,
                     es.created_at
                FROM exercise_submissions es
-              WHERE es.exercise_id = e.id
-                AND es.user_id = e.user_id
-              ORDER BY es.created_at DESC
-              LIMIT 1
+               WHERE es.exercise_id = e.id
+                 AND es.user_id = e.user_id
+               ORDER BY es.created_at DESC
+               LIMIT 1
            ) latest ON TRUE
+           ${
+             hasTeacherReviewMeta
+               ? `LEFT JOIN LATERAL (
+                    SELECT COUNT(*)::int AS "teacherReviewedCount"
+                      FROM exercise_answers a
+                      JOIN exercise_questions q ON q.id = a.question_id
+                     WHERE a.submission_id = latest.id
+                       AND (
+                         lower(COALESCE(q.question_type, '')) LIKE '%short%'
+                         OR lower(COALESCE(q.question_type, '')) LIKE '%open%'
+                         OR lower(COALESCE(q.question_type, '')) LIKE '%essay%'
+                         OR lower(COALESCE(q.question_type, '')) LIKE '%long%'
+                       )
+                       AND a.teacher_score IS NOT NULL
+                  ) review ON TRUE`
+               : `LEFT JOIN LATERAL (
+                    SELECT 0::int AS "teacherReviewedCount"
+                  ) review ON TRUE`
+           }
            LEFT JOIN LATERAL (
-             SELECT COUNT(*)::int AS count
-               FROM exercise_submissions es
-              WHERE es.exercise_id = e.id
-                AND es.user_id = e.user_id
+              SELECT COUNT(*)::int AS count
+                FROM exercise_submissions es
+               WHERE es.exercise_id = e.id
+                 AND es.user_id = e.user_id
            ) attempts ON TRUE
           WHERE e.user_id = $1
             AND e.assigned_by_teacher_id IS NOT NULL
@@ -3004,6 +3079,7 @@ router.get("/assignments", async (req, res, next) => {
         const sortDate = sortDateRaw ? new Date(sortDateRaw).getTime() : 0;
         const rawScore = Number(row.submissionScore);
         const hasScore = Number.isFinite(rawScore);
+        const teacherReviewedCount = Number(row.teacherReviewedCount) || 0;
         return {
           id: `exercise-assignment-${row.id}`,
           exerciseId: row.id,
@@ -3020,11 +3096,17 @@ router.get("/assignments", async (req, res, next) => {
           weakArea: null,
           aiFeedback: null,
           reviewStatus: isCompleted
-            ? hasScore
-              ? "AI graded"
-              : "Submitted"
+            ? teacherReviewedCount > 0
+              ? "Teacher graded"
+              : hasScore
+                ? "AI graded"
+                : "Submitted"
             : "Not submitted",
-          gradingState: isCompleted ? "ai_graded" : "not_submitted",
+          gradingState: isCompleted
+            ? teacherReviewedCount > 0
+              ? "teacher_graded"
+              : "ai_graded"
+            : "not_submitted",
           attemptCount: Number(row.attemptCount) || 0,
           source: "teacher_exercise",
           canStart: !isCompleted,
@@ -3956,6 +4038,8 @@ router.get("/exercises/:id/review", async (req, res, next) => {
       });
     }
 
+    const hasTeacherReviewMeta = await hasExerciseAnswerTeacherReviewMetaSupport();
+
     const { rows: questionRows } = await query(
       `SELECT q.id,
               q.question_order AS "order",
@@ -3963,7 +4047,18 @@ router.get("/exercises/:id/review", async (req, res, next) => {
               q.question_type AS "type",
               q.correct_answer AS "correctAnswer",
               COALESCE(q.points, 1) AS points,
-              a.answer_text AS "studentAnswer"
+              a.answer_text AS "studentAnswer",
+              ${
+                hasTeacherReviewMeta
+                  ? `a.teacher_score AS "teacherScore",
+                     a.teacher_feedback AS "teacherFeedback",
+                     a.reviewed_by_teacher_id AS "reviewedByTeacherId",
+                     a.reviewed_at AS "reviewedAt"`
+                  : `NULL::numeric AS "teacherScore",
+                     NULL::text AS "teacherFeedback",
+                     NULL::uuid AS "reviewedByTeacherId",
+                     NULL::timestamptz AS "reviewedAt"`
+              }
          FROM exercise_questions q
          LEFT JOIN exercise_answers a
            ON a.question_id = q.id
@@ -3981,13 +4076,27 @@ router.get("/exercises/:id/review", async (req, res, next) => {
         ? parseMultipleChoiceQuestion(row.text)
         : { prompt: String(row.text || "").trim(), options: [] };
       const submittedAnswer = String(row.studentAnswer || "");
-      const grading = gradeExerciseQuestion({
-        questionType: row.type,
-        submittedAnswer,
-        correctAnswer: row.correctAnswer,
-        points: safePoints,
-        manualReviewOpenQuestions: false,
-      });
+      const teacherScore =
+        row.teacherScore === null || row.teacherScore === undefined
+          ? null
+          : toNumberOrNull(row.teacherScore);
+      const hasTeacherOverride =
+        isOpenEndedType(row.type) && teacherScore !== null;
+      const grading = hasTeacherOverride
+        ? {
+            countInScore: true,
+            earnedPoints: clamp(teacherScore, 0, safePoints),
+            isCorrect: clamp(teacherScore, 0, safePoints) >= safePoints * 0.95,
+            needsTeacherReview: false,
+            mode: "teacher_review",
+          }
+        : gradeExerciseQuestion({
+            questionType: row.type,
+            submittedAnswer,
+            correctAnswer: row.correctAnswer,
+            points: safePoints,
+            manualReviewOpenQuestions: false,
+          });
       const feedback = buildQuestionReviewFeedback({
         questionType: row.type,
         submittedAnswer,
@@ -4013,6 +4122,12 @@ router.get("/exercises/:id/review", async (req, res, next) => {
         ),
         needsTeacherReview: Boolean(grading.needsTeacherReview),
         gradingMode: grading.mode || "auto",
+        teacherScore: hasTeacherOverride
+          ? clamp(teacherScore, 0, safePoints)
+          : null,
+        teacherFeedback: row.teacherFeedback || null,
+        reviewedByTeacherId: row.reviewedByTeacherId || null,
+        reviewedAt: row.reviewedAt || null,
         feedback,
       };
     });
@@ -4040,6 +4155,7 @@ router.get("/exercises/:id/review", async (req, res, next) => {
         attemptCount: Number(exercise.attemptCount) || 1,
         reviewStatus: reviewMeta.status,
         pendingTeacherCount: reviewMeta.pendingTeacher,
+        teacherReviewedCount: reviewMeta.teacherReviewed,
         aiReviewedCount: reviewMeta.autoReviewed,
       },
       questions: questionReviews,
