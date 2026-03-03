@@ -6094,6 +6094,8 @@ router.get("/exercises/:id/download", async (req, res, next) => {
     const right = doc.page.width - doc.page.margins.right;
     const contentWidth = right - left;
     const rightColumnX = left + contentWidth * 0.64;
+    const centeredBodyWidth = Math.min(contentWidth * 0.88, 470);
+    const centeredBodyX = left + (contentWidth - centeredBodyWidth) / 2;
     const headerTop = doc.y;
 
     if (hasSchoolLogo) {
@@ -6203,23 +6205,32 @@ router.get("/exercises/:id/download", async (req, res, next) => {
     });
 
     doc.y = Math.max(leftMetaY, rightMetaY) + 10;
-    doc.font("Helvetica-Bold").fontSize(13).fillColor("#0f172a").text("Instructions:");
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(13)
+      .fillColor("#0f172a")
+      .text("Instructions:", centeredBodyX, doc.y, { width: centeredBodyWidth });
     doc.moveDown(0.3);
     [
       "Attempt all questions.",
       "Write clear and complete responses.",
       "Review your answers before submission.",
     ].forEach((line) => {
-      doc.font("Helvetica").fontSize(11).fillColor("#1f2937").text(`- ${line}`, {
-        indent: 10,
-      });
+      doc
+        .font("Helvetica")
+        .fontSize(11)
+        .fillColor("#1f2937")
+        .text(`- ${line}`, centeredBodyX, doc.y, {
+          width: centeredBodyWidth,
+          indent: 10,
+        });
     });
     doc.moveDown(0.4);
     doc
       .strokeColor("#1e293b")
       .lineWidth(1)
-      .moveTo(left, doc.y)
-      .lineTo(right, doc.y)
+      .moveTo(centeredBodyX, doc.y)
+      .lineTo(centeredBodyX + centeredBodyWidth, doc.y)
       .stroke();
     doc.y += 10;
 
@@ -6242,14 +6253,18 @@ router.get("/exercises/:id/download", async (req, res, next) => {
         .font("Helvetica-Bold")
         .fontSize(11.5)
         .fillColor("#0f172a")
-        .text(`Question ${idx + 1}: ${mainLine} /${points} pts`, {
-          width: contentWidth,
+        .text(`Question ${idx + 1}: ${mainLine} /${points} pts`, centeredBodyX, doc.y, {
+          width: centeredBodyWidth,
         });
       lines.forEach((line) => {
-        doc.font("Helvetica").fontSize(11).fillColor("#1f2937").text(line, {
-          width: contentWidth - 12,
-          indent: 12,
-        });
+        doc
+          .font("Helvetica")
+          .fontSize(11)
+          .fillColor("#1f2937")
+          .text(line, centeredBodyX, doc.y, {
+            width: centeredBodyWidth,
+            indent: 12,
+          });
       });
       doc.moveDown(0.8);
     });
