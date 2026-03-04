@@ -2,12 +2,12 @@ import express from "express";
 import multer from "multer";
 import path from "path";
 import { query } from "../db.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
 import { uploadLimiter } from "../middleware/rateLimit.js";
 import { logAudit } from "../utils/audit.js";
 
 const router = express.Router();
-router.use(requireAuth);
+router.use(requireAuth, requireRole(["teacher", "admin"]));
 
 const upload = multer({
   storage: multer.memoryStorage(),

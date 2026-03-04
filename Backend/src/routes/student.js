@@ -4,7 +4,7 @@ import fs from "fs";
 import path from "path";
 import multer from "multer";
 import PDFDocument from "pdfkit";
-import { query } from "../db.js";
+import pool, { query } from "../db.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { aiLimiter, uploadLimiter } from "../middleware/rateLimit.js";
 import { logAudit } from "../utils/audit.js";
@@ -76,6 +76,45 @@ const formatTimeRange = (start, end) => {
   const endValue = formatTime(end);
   if (!startValue || !endValue) return null;
   return `${startValue} - ${endValue}`;
+};
+
+const timeToMinutes = (value) => {
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  return hour * 60 + minute;
+};
+
+const getCurrentDayIndex = () => (new Date().getDay() + 6) % 7;
+
+let scheduleClassMetaCache = null;
+const getScheduleClassMeta = async () => {
+  if (scheduleClassMetaCache) return scheduleClassMetaCache;
+  const { rows } = await query(
+    `SELECT
+        EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_schema = 'public'
+             AND table_name = 'schedule_classes'
+             AND column_name = 'class_id'
+        ) AS "hasClassId",
+        EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_schema = 'public'
+             AND table_name = 'schedule_classes'
+             AND column_name = 'subject_id'
+        ) AS "hasSubjectId"`,
+  );
+  scheduleClassMetaCache = {
+    hasClassId: Boolean(rows[0]?.hasClassId),
+    hasSubjectId: Boolean(rows[0]?.hasSubjectId),
+  };
+  return scheduleClassMetaCache;
 };
 
 const formatPercent = (value) => {
@@ -4172,22 +4211,6 @@ router.post("/exercises/:id/submit", async (req, res, next) => {
       return res.status(400).json({ error: "Invalid exercise id." });
     }
 
-    const { rows: existingRows } = await query(
-      `SELECT id, status
-           FROM exercise_submissions
-          WHERE user_id = $1
-            AND exercise_id = $2
-          ORDER BY created_at DESC
-          LIMIT 1`,
-      [req.user.id, exerciseId],
-    );
-
-    if (existingRows[0]) {
-      return res
-        .status(409)
-        .json({ error: "You have already taken this exercise." });
-    }
-
     const subjects = await getActiveSubjects(req.user.id);
     if (subjects.length === 0) {
       return res.status(404).json({ error: "Exercise not found." });
@@ -4216,109 +4239,132 @@ router.post("/exercises/:id/submit", async (req, res, next) => {
     }
     const exercise = exerciseRows[0];
 
-    const { rows: submissionRows } = await query(
-      `INSERT INTO exercise_submissions (user_id, exercise_id, status)
-       VALUES ($1, $2, $3)
-       RETURNING id, status, submitted_at AS "submittedAt", created_at AS "createdAt"`,
-      [req.user.id, exerciseId, submissionStatus],
-    );
-
-    const submission = submissionRows[0];
-
-    const normalizedAnswers = Array.isArray(answers) ? answers : [];
-    if (normalizedAnswers.length > 0) {
-      const values = [];
-      const params = [];
-      let idx = 1;
-      for (const answer of normalizedAnswers) {
-        if (!answer.questionId) continue;
-        values.push(`($${idx++}, $${idx++}, $${idx++})`);
-        params.push(submission.id, answer.questionId, answer.answerText || "");
-      }
-
-      if (values.length > 0) {
-        await query(
-          `INSERT INTO exercise_answers (submission_id, question_id, answer_text)
-           VALUES ${values.join(", ")}`,
-          params,
-        );
-      }
-    }
-
+    const client = await pool.connect();
+    let submission = null;
     let score = null;
     let manualReviewCount = 0;
     let evaluatedQuestions = [];
-    if (normalizedAnswers.length > 0) {
-      const { rows: questionRows } = await query(
-        `SELECT id,
-                question_text AS "questionText",
-                question_type AS "questionType",
-                correct_answer AS "correctAnswer",
-                COALESCE(points, 1) AS points
-           FROM exercise_questions
-          WHERE exercise_id = $1`,
-        [exerciseId],
+    const normalizedAnswers = Array.isArray(answers) ? answers : [];
+    try {
+      await client.query("BEGIN");
+
+      const { rows: submissionRows } = await client.query(
+        `INSERT INTO exercise_submissions (user_id, exercise_id, status)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (user_id, exercise_id) DO NOTHING
+         RETURNING id, status, submitted_at AS "submittedAt", created_at AS "createdAt"`,
+        [req.user.id, exerciseId, submissionStatus],
       );
+      submission = submissionRows[0] || null;
+      if (!submission) {
+        await client.query("ROLLBACK");
+        return res
+          .status(409)
+          .json({ error: "You have already taken this exercise." });
+      }
 
-      const answerMap = new Map(
-        normalizedAnswers
-          .filter((ans) => ans.questionId)
-          .map((ans) => [String(ans.questionId), ans.answerText]),
-      );
-
-      let totalPoints = 0;
-      let earnedPoints = 0;
-
-      for (const q of questionRows) {
-        const pointsValue = Number(q.points);
-        const points = Number.isFinite(pointsValue) ? pointsValue : 1;
-        const submitted = answerMap.get(String(q.id));
-        const hasSubmission =
-          submitted !== undefined && String(submitted || "").trim() !== "";
-        const grading = gradeExerciseQuestion({
-          questionType: q.questionType,
-          submittedAnswer: hasSubmission ? submitted : "",
-          correctAnswer: q.correctAnswer,
-          points,
-          manualReviewOpenQuestions,
-        });
-
-        if (grading.needsTeacherReview) {
-          manualReviewCount += 1;
+      if (normalizedAnswers.length > 0) {
+        const values = [];
+        const params = [];
+        let idx = 1;
+        for (const answer of normalizedAnswers) {
+          if (!answer.questionId) continue;
+          values.push(`($${idx++}, $${idx++}, $${idx++})`);
+          params.push(submission.id, answer.questionId, answer.answerText || "");
         }
 
-        evaluatedQuestions.push({
-          question: q.questionText || "",
-          type: q.questionType || "Question",
-          studentAnswer: hasSubmission ? String(submitted || "") : "",
-          correctAnswer: String(q.correctAnswer || ""),
-          isCorrect: grading.isCorrect,
-          earnedPoints: Number(grading.earnedPoints.toFixed(2)),
-          points,
-          needsTeacherReview: grading.needsTeacherReview,
-          gradingMode: grading.mode,
-        });
-
-        if (grading.countInScore) {
-          totalPoints += points;
+        if (values.length > 0) {
+          await client.query(
+            `INSERT INTO exercise_answers (submission_id, question_id, answer_text)
+             VALUES ${values.join(", ")}`,
+            params,
+          );
         }
-        if (!hasSubmission) continue;
-        if (!grading.countInScore) continue;
+      }
 
-        const boundedEarned = Math.max(
-          0,
-          Math.min(points, Number(grading.earnedPoints) || 0),
+      if (normalizedAnswers.length > 0) {
+        const { rows: questionRows } = await client.query(
+          `SELECT id,
+                  question_text AS "questionText",
+                  question_type AS "questionType",
+                  correct_answer AS "correctAnswer",
+                  COALESCE(points, 1) AS points
+             FROM exercise_questions
+            WHERE exercise_id = $1`,
+          [exerciseId],
         );
-        earnedPoints += boundedEarned;
-      }
 
-      if (totalPoints > 0) {
-        score = Math.max(0, Math.min(100, Math.round((earnedPoints / totalPoints) * 100)));
-        await query(`UPDATE exercise_submissions SET score = $1 WHERE id = $2`, [
-          score,
-          submission.id,
-        ]);
+        const answerMap = new Map(
+          normalizedAnswers
+            .filter((ans) => ans.questionId)
+            .map((ans) => [String(ans.questionId), ans.answerText]),
+        );
+
+        let totalPoints = 0;
+        let earnedPoints = 0;
+
+        for (const q of questionRows) {
+          const pointsValue = Number(q.points);
+          const points = Number.isFinite(pointsValue) ? pointsValue : 1;
+          const submitted = answerMap.get(String(q.id));
+          const hasSubmission =
+            submitted !== undefined && String(submitted || "").trim() !== "";
+          const grading = gradeExerciseQuestion({
+            questionType: q.questionType,
+            submittedAnswer: hasSubmission ? submitted : "",
+            correctAnswer: q.correctAnswer,
+            points,
+            manualReviewOpenQuestions,
+          });
+
+          if (grading.needsTeacherReview) {
+            manualReviewCount += 1;
+          }
+
+          evaluatedQuestions.push({
+            question: q.questionText || "",
+            type: q.questionType || "Question",
+            studentAnswer: hasSubmission ? String(submitted || "") : "",
+            correctAnswer: String(q.correctAnswer || ""),
+            isCorrect: grading.isCorrect,
+            earnedPoints: Number(grading.earnedPoints.toFixed(2)),
+            points,
+            needsTeacherReview: grading.needsTeacherReview,
+            gradingMode: grading.mode,
+          });
+
+          if (grading.countInScore) {
+            totalPoints += points;
+          }
+          if (!hasSubmission) continue;
+          if (!grading.countInScore) continue;
+
+          const boundedEarned = Math.max(
+            0,
+            Math.min(points, Number(grading.earnedPoints) || 0),
+          );
+          earnedPoints += boundedEarned;
+        }
+
+        if (totalPoints > 0) {
+          score = Math.max(
+            0,
+            Math.min(100, Math.round((earnedPoints / totalPoints) * 100)),
+          );
+          await client.query(
+            `UPDATE exercise_submissions
+                SET score = $1
+              WHERE id = $2`,
+            [score, submission.id],
+          );
+        }
       }
+      await client.query("COMMIT");
+    } catch (txError) {
+      await client.query("ROLLBACK");
+      throw txError;
+    } finally {
+      client.release();
     }
 
     if (submissionStatus === "submitted") {
@@ -5582,6 +5628,163 @@ router.delete("/tasks/:id", async (req, res, next) => {
     }
 
     return res.status(204).send();
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/class-timetable", async (req, res, next) => {
+  try {
+    const scheduleMeta = await getScheduleClassMeta();
+    const { rows: profileRows } = await query(
+      `SELECT COALESCE(p.class_id, sp.class_id) AS "classId",
+              COALESCE(c.class_name, p.class_name, '') AS "className",
+              COALESCE(c.grade_level, p.grade_level, sp.grade_level, '') AS "gradeLevel"
+         FROM users u
+         LEFT JOIN user_profiles p ON p.user_id = u.id
+         LEFT JOIN student_profiles sp ON sp.user_id = u.id
+         LEFT JOIN classes c ON c.id = COALESCE(p.class_id, sp.class_id)
+        WHERE u.id = $1`,
+      [req.user.id],
+    );
+    const profile = profileRows[0] || {};
+    const classId = profile.classId || null;
+    const className = String(profile.className || "").trim();
+    const likeClass = className ? `%${className}%` : null;
+
+    const classSelect = scheduleMeta.hasClassId
+      ? `sc.class_id AS "classId",
+              c.class_name AS "resolvedClassName",
+              c.grade_level AS "resolvedGradeLevel"`
+      : `NULL::uuid AS "classId",
+              NULL::text AS "resolvedClassName",
+              NULL::text AS "resolvedGradeLevel"`;
+    const subjectSelect = scheduleMeta.hasSubjectId
+      ? `s.name AS "subjectName"`
+      : `NULL::text AS "subjectName"`;
+    const classJoin = scheduleMeta.hasClassId
+      ? `LEFT JOIN classes c ON c.id = sc.class_id`
+      : "";
+    const subjectJoin = scheduleMeta.hasSubjectId
+      ? `LEFT JOIN subjects s ON s.id = sc.subject_id`
+      : "";
+    const whereClause = scheduleMeta.hasClassId
+      ? `(
+          ($1::uuid IS NOT NULL AND sc.class_id = $1)
+          OR (
+            $1::uuid IS NULL
+            AND $2::text IS NOT NULL
+            AND sc.title ILIKE $2
+          )
+        )`
+      : `($2::text IS NOT NULL AND sc.title ILIKE $2)`;
+    const { rows } = await query(
+      `SELECT sc.id,
+              sc.day_of_week AS "day",
+              sc.start_time AS "startTime",
+              sc.end_time AS "endTime",
+              sc.title,
+              sc.room,
+              sc.instructor,
+              ${classSelect},
+              ${subjectSelect},
+              u.id AS "teacherId",
+              u.email AS "teacherEmail",
+              up.first_name AS "teacherFirstName",
+              up.last_name AS "teacherLastName"
+         FROM schedule_classes sc
+         ${classJoin}
+         ${subjectJoin}
+         LEFT JOIN users u ON u.id = sc.user_id
+         LEFT JOIN user_profiles up ON up.user_id = sc.user_id
+        WHERE ${whereClause}
+        ORDER BY sc.day_of_week, sc.start_time`,
+      [classId, likeClass],
+    );
+
+    const classes = rows.map((row) => ({
+      id: row.id,
+      day: row.day,
+      dayLabel: DAY_LABELS[row.day] || `Day ${row.day}`,
+      startTime: formatTime(row.startTime),
+      endTime: formatTime(row.endTime),
+      time: formatTimeRange(row.startTime, row.endTime),
+      title: row.title,
+      room: row.room || null,
+      instructor: row.instructor || null,
+      classId: row.classId || classId,
+      className: row.resolvedClassName || className || null,
+      gradeLevel: row.resolvedGradeLevel || profile.gradeLevel || null,
+      subjectName: row.subjectName || null,
+      teacherId: row.teacherId || null,
+      teacherName:
+        [row.teacherFirstName, row.teacherLastName].filter(Boolean).join(" ") ||
+        row.teacherEmail ||
+        null,
+    }));
+
+    const now = new Date();
+    const currentDay = getCurrentDayIndex();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const todayClasses = classes.filter((item) => item.day === currentDay);
+    const currentLesson = todayClasses.find((item) => {
+      const startMinutes = timeToMinutes(item.startTime);
+      const endMinutes = timeToMinutes(item.endTime);
+      return (
+        startMinutes !== null &&
+        endMinutes !== null &&
+        startMinutes <= nowMinutes &&
+        nowMinutes < endMinutes
+      );
+    });
+
+    const todayMinutes = todayClasses.reduce((sum, item) => {
+      const startMinutes = timeToMinutes(item.startTime);
+      const endMinutes = timeToMinutes(item.endTime);
+      if (
+        startMinutes === null ||
+        endMinutes === null ||
+        endMinutes <= startMinutes
+      ) {
+        return sum;
+      }
+      return sum + (endMinutes - startMinutes);
+    }, 0);
+    const weekMinutes = classes.reduce((sum, item) => {
+      const startMinutes = timeToMinutes(item.startTime);
+      const endMinutes = timeToMinutes(item.endTime);
+      if (
+        startMinutes === null ||
+        endMinutes === null ||
+        endMinutes <= startMinutes
+      ) {
+        return sum;
+      }
+      return sum + (endMinutes - startMinutes);
+    }, 0);
+
+    return res.json({
+      classMeta: {
+        classId,
+        className: className || null,
+        gradeLevel: profile.gradeLevel || null,
+      },
+      classes,
+      currentLesson: currentLesson
+        ? {
+            ...currentLesson,
+            remainingMinutes:
+              timeToMinutes(currentLesson.endTime) !== null
+                ? Math.max(timeToMinutes(currentLesson.endTime) - nowMinutes, 0)
+                : null,
+          }
+        : null,
+      teachingHours: {
+        todayHours: Number((todayMinutes / 60).toFixed(2)),
+        weeklyHours: Number((weekMinutes / 60).toFixed(2)),
+      },
+      asOf: now.toISOString(),
+    });
   } catch (error) {
     return next(error);
   }

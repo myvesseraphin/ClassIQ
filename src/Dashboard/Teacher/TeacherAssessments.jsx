@@ -9,6 +9,8 @@ import {
   FileText,
   Filter,
   ImagePlus,
+  LayoutGrid,
+  List,
   Loader2,
   Search,
   Sparkles,
@@ -41,6 +43,8 @@ const TeacherAssessments = () => {
   const [classes, setClasses] = useState([]);
   const [subject, setSubject] = useState("All");
   const [query, setQuery] = useState("");
+  const [classesViewMode, setClassesViewMode] = useState("grid");
+  const [studentsViewMode, setStudentsViewMode] = useState("list");
 
   const [selectedClass, setSelectedClass] = useState(null);
   const [classLoading, setClassLoading] = useState(false);
@@ -543,21 +547,49 @@ const TeacherAssessments = () => {
                   </button>
                 ))}
               </div>
-              <div className="relative w-full lg:w-96">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-                <input
-                  type="text"
-                  placeholder="Search class..."
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  className="w-full pl-12 pr-6 py-3.5 bg-white border-2 border-slate-100 rounded-2xl outline-none focus:border-[#2D70FD] text-sm font-semibold text-slate-700 shadow-sm"
-                />
+              <div className="w-full lg:w-auto flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                <div className="inline-flex items-center gap-1 self-end sm:self-auto rounded-2xl border border-slate-200 bg-white p-1">
+                  <button
+                    type="button"
+                    onClick={() => setClassesViewMode("grid")}
+                    className={`h-9 w-9 rounded-xl inline-flex items-center justify-center transition-all ${
+                      classesViewMode === "grid"
+                        ? "bg-blue-50 text-[#2D70FD]"
+                        : "text-slate-400 hover:text-slate-600"
+                    }`}
+                    aria-label="Grid class layout"
+                  >
+                    <LayoutGrid size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setClassesViewMode("list")}
+                    className={`h-9 w-9 rounded-xl inline-flex items-center justify-center transition-all ${
+                      classesViewMode === "list"
+                        ? "bg-blue-50 text-[#2D70FD]"
+                        : "text-slate-400 hover:text-slate-600"
+                    }`}
+                    aria-label="List class layout"
+                  >
+                    <List size={18} />
+                  </button>
+                </div>
+                <div className="relative w-full lg:w-96">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+                  <input
+                    type="text"
+                    placeholder="Search class..."
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    className="w-full pl-12 pr-6 py-3.5 bg-white border-2 border-slate-100 rounded-2xl outline-none focus:border-[#2D70FD] text-sm font-semibold text-slate-700 shadow-sm"
+                  />
+                </div>
               </div>
             </div>
 
             {classes.length === 0 || filteredClasses.length === 0 ? (
               <EmptyState />
-            ) : (
+            ) : classesViewMode === "grid" ? (
               <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-8">
                 {filteredClasses.map((item) => (
                   <div
@@ -586,6 +618,44 @@ const TeacherAssessments = () => {
                       <ArrowUpRight size={18} />
                       View
                     </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {filteredClasses.map((item) => (
+                  <div
+                    key={item.id}
+                    className="bg-white border border-slate-100 rounded-3xl p-5 md:p-6 shadow-sm hover:border-blue-200 transition-colors"
+                  >
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="min-w-0 flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-blue-50 text-[#2D70FD] shrink-0">
+                          <BookOpen size={22} />
+                        </div>
+                        <div className="min-w-0">
+                          <h3 className="text-lg font-semibold text-slate-900 truncate">
+                            {item.courseName || "Subject"}
+                          </h3>
+                          <p className="text-sm font-medium text-slate-500">
+                            {cls(item)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="px-3 py-1 bg-slate-50 rounded-lg text-[10px] font-semibold text-slate-500 uppercase tracking-widest">
+                          {item.level || "--"}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => openClass(item)}
+                          className="px-4 py-2.5 bg-[#2D70FD] text-white rounded-xl font-semibold text-sm inline-flex items-center gap-2 hover:bg-[#1E5CE0]"
+                        >
+                          <ArrowUpRight size={16} />
+                          View
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -633,7 +703,37 @@ const TeacherAssessments = () => {
             <div className="bg-white border border-slate-100 rounded-[2.5rem] p-6 shadow-sm">
               <div className="flex items-center justify-between gap-3 mb-5">
                 <h3 className="text-xl font-black text-slate-900">Students</h3>
-                {classLoading ? <Loader2 size={20} className="animate-spin text-[#2D70FD]" /> : null}
+                <div className="inline-flex items-center gap-2">
+                  <div className="inline-flex items-center gap-1 rounded-2xl border border-slate-200 bg-white p-1">
+                    <button
+                      type="button"
+                      onClick={() => setStudentsViewMode("grid")}
+                      className={`h-8 w-8 rounded-lg inline-flex items-center justify-center transition-all ${
+                        studentsViewMode === "grid"
+                          ? "bg-blue-50 text-[#2D70FD]"
+                          : "text-slate-400 hover:text-slate-600"
+                      }`}
+                      aria-label="Grid student layout"
+                    >
+                      <LayoutGrid size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStudentsViewMode("list")}
+                      className={`h-8 w-8 rounded-lg inline-flex items-center justify-center transition-all ${
+                        studentsViewMode === "list"
+                          ? "bg-blue-50 text-[#2D70FD]"
+                          : "text-slate-400 hover:text-slate-600"
+                      }`}
+                      aria-label="List student layout"
+                    >
+                      <List size={16} />
+                    </button>
+                  </div>
+                  {classLoading ? (
+                    <Loader2 size={20} className="animate-spin text-[#2D70FD]" />
+                  ) : null}
+                </div>
               </div>
               {classLoading ? (
                 <div className="space-y-3">
@@ -643,6 +743,70 @@ const TeacherAssessments = () => {
                 </div>
               ) : filteredRows.length === 0 ? (
                 <EmptyState />
+              ) : studentsViewMode === "grid" ? (
+                <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
+                  {filteredRows.map((row) => (
+                    <div
+                      key={row.student.id}
+                      className="rounded-3xl border border-slate-200 bg-white p-5 hover:border-blue-200 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-base font-semibold text-slate-900 truncate">
+                            {row.student.name || "Student"}
+                          </p>
+                          <p className="text-xs text-slate-500 truncate">
+                            {row.student.studentNumber || "--"}
+                          </p>
+                        </div>
+                        <span
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold uppercase tracking-widest ${
+                            row.done
+                              ? "bg-emerald-50 text-emerald-700"
+                              : "bg-amber-50 text-amber-700"
+                          }`}
+                        >
+                          {row.done ? "Done" : "Pending"}
+                        </span>
+                      </div>
+                      <div className="mt-4 grid grid-cols-2 gap-2">
+                        <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest">
+                            Completed
+                          </p>
+                          <p className="mt-1 text-lg font-black text-slate-900">
+                            {row.completedAssessments}
+                          </p>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest">
+                            Pending
+                          </p>
+                          <p className="mt-1 text-lg font-black text-slate-900">
+                            {row.pendingAssessments}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-4 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setStudentModalId(row.student.id)}
+                          className="flex-1 h-10 rounded-xl border border-slate-200 text-slate-700 text-xs font-semibold hover:border-blue-200 hover:text-[#2D70FD]"
+                        >
+                          Details
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openScan(row.student)}
+                          className="h-10 px-4 rounded-xl bg-[#2D70FD] text-white text-xs font-semibold inline-flex items-center gap-1.5 hover:bg-[#1E5CE0]"
+                        >
+                          <ImagePlus size={14} />
+                          Upload
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               ) : (
                 <div className="rounded-[2.5rem] border border-slate-200 bg-white overflow-hidden">
                   <div className="overflow-x-auto">

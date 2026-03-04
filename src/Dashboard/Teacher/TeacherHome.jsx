@@ -8,6 +8,9 @@ import {
   Activity,
   UserCheck,
   BookOpen,
+  ListChecks,
+  Clock3,
+  BookMarked,
   ArrowRight,
   ChevronDown,
   Search,
@@ -22,6 +25,9 @@ import {
 import { toast } from "react-toastify";
 import api, { resolveMediaUrl } from "../../api/client";
 import TeacherPageSkeleton from "../../Component/TeacherPageSkeleton";
+
+const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const getCurrentDayIndex = () => (new Date().getDay() + 6) % 7;
 
 const TeacherHome = () => {
   const defaultSummary = [
@@ -183,6 +189,97 @@ const TeacherHome = () => {
   const currentDayName = new Intl.DateTimeFormat("en-US", {
     weekday: "short",
   }).format(new Date());
+  const currentDayIndex = getCurrentDayIndex();
+  const currentMinutes = (() => {
+    const now = new Date();
+    return now.getHours() * 60 + now.getMinutes();
+  })();
+
+  const parseTimeToMinutes = (value) => {
+    if (!value || typeof value !== "string") return null;
+    const raw = value.trim();
+    if (!raw) return null;
+
+    const match = raw.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
+    if (!match) return null;
+
+    let hours = Number(match[1]);
+    const minutes = Number(match[2] || 0);
+    const meridiem = match[3] ? match[3].toLowerCase() : null;
+
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+    if (minutes < 0 || minutes > 59) return null;
+
+    if (meridiem) {
+      if (hours < 1 || hours > 12) return null;
+      if (meridiem === "am") {
+        hours = hours === 12 ? 0 : hours;
+      } else {
+        hours = hours === 12 ? 12 : hours + 12;
+      }
+    } else if (hours < 0 || hours > 23) {
+      return null;
+    }
+
+    return hours * 60 + minutes;
+  };
+
+  const getRangeFromTime = (value) => {
+    if (!value || typeof value !== "string") return null;
+    const [startRaw, endRaw] = value.split(/\s*[-\u2013]\s*/);
+    const start = parseTimeToMinutes(startRaw);
+    const end = parseTimeToMinutes(endRaw);
+    if (start === null || end === null || end <= start) return null;
+    return { start, end };
+  };
+
+  const isTodayScheduleItem = (item) => {
+    const day = String(item?.day || "").trim().toLowerCase();
+    return day.startsWith(currentDayName.toLowerCase());
+  };
+
+  const todaySchedule = teacherData.schedule
+    .filter(isTodayScheduleItem)
+    .map((item) => ({
+      ...item,
+      range: getRangeFromTime(item.time),
+    }))
+    .filter((item) => item.range)
+    .sort((a, b) => a.range.start - b.range.start);
+
+  const dayIndexMap = DAY_LABELS.reduce((acc, label, index) => {
+    acc[label.toLowerCase()] = index;
+    return acc;
+  }, {});
+
+  const upcomingLessons = teacherData.schedule
+    .map((item) => {
+      const dayName = String(item?.day || "").trim();
+      const dayIndex = dayIndexMap[dayName.slice(0, 3).toLowerCase()];
+      const range = getRangeFromTime(item?.time);
+      if (!Number.isFinite(dayIndex) || !range) return null;
+
+      let offset = dayIndex - currentDayIndex;
+      if (offset < 0 || (offset === 0 && range.end <= currentMinutes)) {
+        offset += 7;
+      }
+
+      return {
+        ...item,
+        dayIndex,
+        range,
+        sortKey: offset * 1440 + range.start,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.sortKey - b.sortKey)
+    .slice(0, 3);
+
+  const currentLesson =
+    todaySchedule.find(
+      (item) =>
+        currentMinutes >= item.range.start && currentMinutes < item.range.end,
+    ) || null;
 
   const scorePoints = Array.isArray(teacherData.scores) ? teacherData.scores : [];
   const normalizedScores = scorePoints
@@ -248,8 +345,20 @@ const TeacherHome = () => {
           .join(" ")
       : "";
   const labelStep = Math.max(1, Math.ceil(positionedScores.length / 6));
+  const rankingLabel = teacherData.ranking || "Ranking unavailable";
   const curriculumStatusLabel =
     teacherData.curriculumStatus || "No class subjects assigned yet";
+  const classCount = Array.isArray(teacherData.assignments?.classes)
+    ? teacherData.assignments.classes.length
+    : 0;
+  const subjectsList = Array.isArray(teacherData.assignments?.subjects)
+    ? teacherData.assignments.subjects
+    : [];
+  const pendingAssessmentReminders = tasks.filter((task) => {
+    if (task?.completed) return false;
+    const title = String(task?.title || "").toLowerCase();
+    return title.includes("assessment") || title.includes("mark");
+  });
 
   if (loading) {
     return <TeacherPageSkeleton variant="home" />;
@@ -360,6 +469,71 @@ const TeacherHome = () => {
             </div>
           </section>
 
+          <section className="bg-white border border-slate-100 rounded-[2rem] p-6 shadow-sm">
+            <h2 className="text-sm font-black uppercase tracking-widest text-slate-700 mb-4">
+              At a glance
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+              <div className="rounded-2xl border border-slate-100 p-4 bg-slate-50/70">
+                <div className="flex items-center gap-2 text-slate-500 mb-2">
+                  <UserCheck size={16} />
+                  <p className="text-[11px] font-black uppercase tracking-wider">Classes</p>
+                </div>
+                <p className="text-2xl font-black text-slate-900">{classCount}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-100 p-4 bg-slate-50/70">
+                <div className="flex items-center gap-2 text-slate-500 mb-2">
+                  <BookMarked size={16} />
+                  <p className="text-[11px] font-black uppercase tracking-wider">Subjects</p>
+                </div>
+                <p className="text-2xl font-black text-slate-900">{subjectsList.length}</p>
+                <p className="mt-1 text-[11px] text-slate-500 truncate">
+                  {subjectsList.length ? subjectsList.join(", ") : "No subjects assigned"}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-100 p-4 bg-slate-50/70">
+                <div className="flex items-center gap-2 text-slate-500 mb-2">
+                  <TrendingUp size={16} />
+                  <p className="text-[11px] font-black uppercase tracking-wider">
+                    Curriculum Progress
+                  </p>
+                </div>
+                <p className="text-2xl font-black text-slate-900">{teacherData.curriculumProgress || "0%"}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-100 p-4 bg-slate-50/70">
+                <div className="flex items-center gap-2 text-slate-500 mb-2">
+                  <Clock3 size={16} />
+                  <p className="text-[11px] font-black uppercase tracking-wider">
+                    Upcoming Lessons
+                  </p>
+                </div>
+                <p className="text-2xl font-black text-slate-900">{upcomingLessons.length}</p>
+                <p className="mt-1 text-[11px] text-slate-500 truncate">
+                  {upcomingLessons[0]
+                    ? `${upcomingLessons[0].day} ${upcomingLessons[0].time}`
+                    : "No lessons scheduled"}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-100 p-4 bg-slate-50/70">
+                <div className="flex items-center gap-2 text-slate-500 mb-2">
+                  <ListChecks size={16} />
+                  <p className="text-[11px] font-black uppercase tracking-wider">
+                    Assessment Reminders
+                  </p>
+                </div>
+                <p className="text-2xl font-black text-slate-900">
+                  {pendingAssessmentReminders.length}
+                </p>
+                <button
+                  onClick={() => navigate("/teacher/assessments")}
+                  className="mt-2 text-[11px] font-black uppercase tracking-wider text-[#2D70FD]"
+                >
+                  Open Assessments
+                </button>
+              </div>
+            </div>
+          </section>
+
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-8">
               <section className="bg-white border border-slate-100 rounded-[2.5rem] p-8 shadow-sm h-full">
@@ -437,14 +611,26 @@ const TeacherHome = () => {
               </section>
             </div>
 
-            <div className="lg:col-span-4">
-              <section className="relative overflow-hidden bg-white/40 backdrop-blur-md border border-white/20 rounded-[2.5rem] p-8 shadow-xl h-full flex flex-col items-center justify-center text-center">
+            <div className="lg:col-span-4 space-y-6">
+              <section className="relative overflow-hidden bg-white/40 backdrop-blur-md border border-white/20 rounded-[2.5rem] p-8 shadow-xl flex flex-col items-center justify-center text-center">
                 <div className="absolute -top-6 -right-6 w-24 h-24 bg-blue-400/20 rounded-full" />
-
-                <p className="text-[10px] font-black text-black uppercase tracking-[0.2em] mb-4 relative z-10">
-                  Curriculum Progress
+                <p className="text-[10px] font-black text-[#2D70FD] uppercase tracking-[0.2em] mb-4 relative z-10">
+                  Academic Average
                 </p>
                 <h2 className="text-6xl font-black text-slate-900 mb-4 tracking-tighter relative z-10">
+                  {teacherData.overallPercentage || "0%"}
+                </h2>
+                <div className="bg-white text-slate-700 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-lg shadow-blue-100 relative z-10">
+                  {rankingLabel}
+                </div>
+              </section>
+
+              <section className="relative overflow-hidden bg-white/40 backdrop-blur-md border border-white/20 rounded-[2.5rem] p-8 shadow-xl flex flex-col items-center justify-center text-center">
+                <div className="absolute -top-6 -right-6 w-24 h-24 bg-blue-400/20 rounded-full" />
+                <p className="text-[10px] font-black text-slate-800 uppercase tracking-[0.2em] mb-4 relative z-10">
+                  Curriculum Progress
+                </p>
+                <h2 className="text-5xl font-black text-slate-900 mb-4 tracking-tighter relative z-10">
                   {teacherData.curriculumProgress || "0%"}
                 </h2>
                 <div className="bg-white text-slate-700 px-4 py-2 rounded-xl text-[11px] font-bold shadow-lg shadow-blue-100 relative z-10">
@@ -512,19 +698,86 @@ const TeacherHome = () => {
           </div>
 
           <div className="space-y-2">
-            <style>{`.rdp { --rdp-cell-size: 38px; --rdp-accent-color: #2D70FD; margin: 0; } .rdp-day_selected:not([disabled]) { font-weight: 900; background-color: #2D70FD; } .rdp-day { font-weight: 600; }`}</style>
-            <div className="flex justify-center">
-              <DayPicker
-                navLayout="around"
-                mode="single"
-                selected={selectedDate}
-                onSelect={setSelectedDate}
-                components={{
-                  IconLeft: () => <ChevronLeft size={16} />,
-                  IconRight: () => <ChevronRight size={16} />,
-                }}
-              />
-            </div>
+            {currentLesson ? (
+              <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-5">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-600">
+                  Current Lesson
+                </p>
+                <h3 className="mt-2 text-lg font-black text-slate-900">
+                  {currentLesson.title || "Lesson"}
+                </h3>
+                <p className="mt-1 text-xs font-bold text-slate-500">
+                  {currentLesson.day} | {currentLesson.time}
+                </p>
+                <span className="mt-4 inline-flex items-center rounded-lg bg-blue-600 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-white">
+                  Live now
+                </span>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-5">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">
+                    Tasks
+                  </h3>
+                  <button
+                    onClick={() => setShowAddTask(true)}
+                    className="flex h-7 w-7 items-center justify-center rounded-full bg-[#2D70FD] text-white active:scale-90 transition-transform"
+                  >
+                    <Plus size={14} />
+                  </button>
+                </div>
+                <div className="max-h-56 space-y-3 overflow-y-auto no-scrollbar pr-1">
+                  {tasks.length === 0 ? (
+                    <p className="py-6 text-center text-xs text-slate-400">
+                      No tasks yet
+                    </p>
+                  ) : (
+                    tasks.map((task) => (
+                      <div
+                        key={task.id}
+                        className="group rounded-xl border border-slate-100 bg-white p-3"
+                      >
+                        <div className="flex items-start gap-3">
+                          <button
+                            onClick={() => toggleTask(task.id)}
+                            className="mt-0.5 flex-shrink-0"
+                          >
+                            <CheckCircle2
+                              size={16}
+                              className={
+                                task.completed
+                                  ? "text-green-600 fill-green-50"
+                                  : "text-slate-300"
+                              }
+                            />
+                          </button>
+                          <div className="min-w-0 flex-1">
+                            <p
+                              className={`text-[12px] font-bold ${
+                                task.completed
+                                  ? "line-through text-slate-400"
+                                  : "text-slate-800"
+                              }`}
+                            >
+                              {task.title}
+                            </p>
+                            <p className="mt-1 text-[11px] text-slate-400">
+                              {task.due || "No due date"}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => deleteTask(task.id)}
+                            className="flex-shrink-0 text-slate-300 opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-600"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="space-y-6">
@@ -566,70 +819,6 @@ const TeacherHome = () => {
               )}
             </div>
 
-            <div className="pt-4 border-t border-slate-100 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">
-                  Tasks
-                </h3>
-                <button
-                  onClick={() => navigate("/teacher/outline")}
-                  className="text-[10px] font-black text-blue-600 uppercase tracking-wider hover:underline"
-                >
-                  View all
-                </button>
-              </div>
-              <div className="space-y-3 max-h-64 overflow-y-auto no-scrollbar">
-                {tasks.length === 0 ? (
-                  <p className="text-xs text-slate-400 text-center py-6">
-                    No tasks yet
-                  </p>
-                ) : (
-                  tasks.map((task) => (
-                    <div
-                      key={task.id}
-                      className="p-4 bg-slate-50 border border-slate-100 rounded-xl hover:border-blue-200 transition-all group"
-                    >
-                      <div className="flex items-start gap-3">
-                        <button
-                          onClick={() => toggleTask(task.id)}
-                          className="mt-0.5 flex-shrink-0"
-                        >
-                          <CheckCircle2
-                            size={18}
-                            className={
-                              task.completed
-                                ? "text-green-600 fill-green-50"
-                                : "text-slate-300"
-                            }
-                          />
-                        </button>
-                        <div className="flex-1 min-w-0">
-                          <p
-                            className={`text-[13px] font-bold transition-all ${
-                              task.completed
-                                ? "line-through text-slate-400"
-                                : "text-slate-800"
-                            }`}
-                          >
-                            {task.title}
-                          </p>
-                          <p className="text-[11px] text-slate-400 mt-1">
-                            {task.due || "No due date"}
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => deleteTask(task.id)}
-                          className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-slate-300 hover:text-red-600"
-                        >
-                          <X size={16} />
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
             <div className="pt-4 border-t border-slate-100 space-y-3">
               <p className="text-xs font-black text-slate-400 uppercase tracking-wider">
                 Quick Access
@@ -656,6 +845,22 @@ const TeacherHome = () => {
                     Assessments
                   </span>
                 </button>
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-100 space-y-2">
+              <style>{`.rdp { --rdp-cell-size: 38px; --rdp-accent-color: #2D70FD; margin: 0; } .rdp-day_selected:not([disabled]) { font-weight: 900; background-color: #2D70FD; } .rdp-day { font-weight: 600; }`}</style>
+              <div className="flex justify-center">
+                <DayPicker
+                  navLayout="around"
+                  mode="single"
+                  selected={selectedDate}
+                  onSelect={setSelectedDate}
+                  components={{
+                    IconLeft: () => <ChevronLeft size={16} />,
+                    IconRight: () => <ChevronRight size={16} />,
+                  }}
+                />
               </div>
             </div>
           </div>

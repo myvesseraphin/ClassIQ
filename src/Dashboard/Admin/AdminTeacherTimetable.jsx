@@ -1,5 +1,14 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Calendar, Download, Loader2, Plus, Trash2, Upload } from "lucide-react";
+import {
+  Bot,
+  Calendar,
+  Download,
+  Loader2,
+  Plus,
+  Sparkles,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { toast } from "react-toastify";
 import api from "../../api/client";
 
@@ -50,17 +59,38 @@ const templateCsv = [
 
 const AdminTeacherTimetable = () => {
   const [teachers, setTeachers] = useState([]);
+  const [classOptions, setClassOptions] = useState([]);
+  const [subjectOptions, setSubjectOptions] = useState([]);
   const [selectedTeacherId, setSelectedTeacherId] = useState("");
   const [selectedTeacher, setSelectedTeacher] = useState(null);
   const [classes, setClasses] = useState([]);
+  const [teachingHours, setTeachingHours] = useState({
+    weeklyHours: 0,
+    todayHours: 0,
+  });
+  const [currentClass, setCurrentClass] = useState(null);
+  const [nextClassToday, setNextClassToday] = useState(null);
   const [isLoadingTeachers, setIsLoadingTeachers] = useState(true);
   const [isLoadingSchedule, setIsLoadingSchedule] = useState(false);
   const [showAddClass, setShowAddClass] = useState(false);
   const [isSavingClass, setIsSavingClass] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isGeneratingAll, setIsGeneratingAll] = useState(false);
   const [importFile, setImportFile] = useState(null);
   const [replaceExisting, setReplaceExisting] = useState(true);
   const [fileInputKey, setFileInputKey] = useState(0);
+  const [generationSummary, setGenerationSummary] = useState(null);
+  const [autoForm, setAutoForm] = useState({
+    mode: "ai",
+    replaceExisting: true,
+    includeSaturday: false,
+    includeSunday: false,
+    dayStartTime: "08:00",
+    slotMinutes: 50,
+    gapMinutes: 10,
+    slotsPerDay: 6,
+    sessionsPerAssignment: 2,
+  });
 
   const [classForm, setClassForm] = useState({
     day: 0,
@@ -69,6 +99,8 @@ const AdminTeacherTimetable = () => {
     title: "",
     room: "",
     instructor: "",
+    classId: "",
+    subjectId: "",
   });
 
   const sortedClasses = useMemo(() => {
@@ -81,9 +113,15 @@ const AdminTeacherTimetable = () => {
   const fetchTeachers = async () => {
     setIsLoadingTeachers(true);
     try {
-      const { data } = await api.get("/admin/teachers");
+      const [{ data }, { data: classData }, { data: subjectData }] = await Promise.all([
+        api.get("/admin/teachers"),
+        api.get("/admin/classes"),
+        api.get("/admin/subjects"),
+      ]);
       const list = Array.isArray(data?.teachers) ? data.teachers : [];
       setTeachers(list);
+      setClassOptions(Array.isArray(classData?.classes) ? classData.classes : []);
+      setSubjectOptions(Array.isArray(subjectData?.subjects) ? subjectData.subjects : []);
       if (list.length > 0) {
         setSelectedTeacherId((prev) => prev || list[0].id);
       }
@@ -108,6 +146,12 @@ const AdminTeacherTimetable = () => {
       });
       setSelectedTeacher(data?.teacher || null);
       setClasses(Array.isArray(data?.classes) ? data.classes : []);
+      setTeachingHours({
+        weeklyHours: Number(data?.teachingHours?.weeklyHours) || 0,
+        todayHours: Number(data?.teachingHours?.todayHours) || 0,
+      });
+      setCurrentClass(data?.currentClass || null);
+      setNextClassToday(data?.nextClassToday || null);
     } catch (error) {
       console.error("Failed to load teacher timetable", error);
       toast.error("Failed to load teacher timetable.");
@@ -123,6 +167,14 @@ const AdminTeacherTimetable = () => {
   useEffect(() => {
     if (!selectedTeacherId) return;
     fetchTeacherSchedule(selectedTeacherId);
+  }, [selectedTeacherId]);
+
+  useEffect(() => {
+    if (!selectedTeacherId) return undefined;
+    const timer = window.setInterval(() => {
+      fetchTeacherSchedule(selectedTeacherId);
+    }, 30000);
+    return () => window.clearInterval(timer);
   }, [selectedTeacherId]);
 
   const handleAddClass = async () => {
@@ -148,6 +200,8 @@ const AdminTeacherTimetable = () => {
           classForm.instructor.trim() ||
           selectedTeacher?.name ||
           undefined,
+        classId: classForm.classId || undefined,
+        subjectId: classForm.subjectId || undefined,
       });
       await fetchTeacherSchedule(selectedTeacherId);
       setShowAddClass(false);
@@ -158,6 +212,8 @@ const AdminTeacherTimetable = () => {
         title: "",
         room: "",
         instructor: "",
+        classId: "",
+        subjectId: "",
       });
       toast.success("Class added to teacher timetable.");
     } catch (error) {
@@ -217,6 +273,35 @@ const AdminTeacherTimetable = () => {
     }
   };
 
+  const handleGenerateForAllTeachers = async () => {
+    setIsGeneratingAll(true);
+    try {
+      const { data } = await api.post("/admin/teacher-schedule/auto-generate", {
+        mode: autoForm.mode,
+        replaceExisting: autoForm.replaceExisting,
+        includeSaturday: autoForm.includeSaturday,
+        includeSunday: autoForm.includeSunday,
+        dayStartTime: autoForm.dayStartTime,
+        slotMinutes: Number(autoForm.slotMinutes),
+        gapMinutes: Number(autoForm.gapMinutes),
+        slotsPerDay: Number(autoForm.slotsPerDay),
+        sessionsPerAssignment: Number(autoForm.sessionsPerAssignment),
+      });
+      setGenerationSummary(data || null);
+      toast.success(
+        `Generated ${Number(data?.generatedCount) || 0} lesson slots for ${Number(data?.teacherCount) || 0} teacher(s).`,
+      );
+      await fetchTeacherSchedule(selectedTeacherId);
+    } catch (error) {
+      console.error("Failed to auto-generate timetables", error);
+      toast.error(
+        error?.response?.data?.error || "Failed to auto-generate timetables.",
+      );
+    } finally {
+      setIsGeneratingAll(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <section className="rounded-3xl border border-slate-200 bg-white p-6 md:p-8 shadow-sm">
@@ -270,6 +355,193 @@ const AdminTeacherTimetable = () => {
             Refresh
           </button>
         </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-4">
+          <StatCard label="Weekly Teaching Hours" value={`${teachingHours.weeklyHours}h`} />
+          <StatCard label="Today's Teaching Hours" value={`${teachingHours.todayHours}h`} />
+          <StatCard
+            label="Current Class"
+            value={currentClass?.title || "No class in progress"}
+            note={currentClass ? `${currentClass.startTime}-${currentClass.endTime}` : ""}
+          />
+          <StatCard
+            label="Next Class"
+            value={nextClassToday?.title || "No more class today"}
+            note={nextClassToday ? `${nextClassToday.startTime}-${nextClassToday.endTime}` : ""}
+          />
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-slate-200 bg-white p-6 md:p-8 shadow-sm">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-xl font-black text-slate-900 flex items-center gap-2">
+              <Sparkles className="text-[#2D70FD]" size={18} />
+              Auto-Generate Timetable (All Teachers)
+            </h2>
+            <p className="text-sm font-semibold text-slate-500">
+              Admin can still add classes manually, or generate weekly schedules for all teachers and lessons at once.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-3">
+          <label className="space-y-2 block">
+            <span className="text-xs font-black uppercase tracking-wider text-slate-500">
+              Generation Mode
+            </span>
+            <select
+              value={autoForm.mode}
+              onChange={(event) =>
+                setAutoForm((prev) => ({ ...prev, mode: event.target.value }))
+              }
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-[#2D70FD]"
+            >
+              <option value="ai">AI-assisted (recommended)</option>
+              <option value="rules">Rule-based</option>
+            </select>
+          </label>
+          <label className="space-y-2 block">
+            <span className="text-xs font-black uppercase tracking-wider text-slate-500">
+              Day Start
+            </span>
+            <input
+              type="time"
+              value={autoForm.dayStartTime}
+              onChange={(event) =>
+                setAutoForm((prev) => ({ ...prev, dayStartTime: event.target.value }))
+              }
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-[#2D70FD]"
+            />
+          </label>
+          <label className="space-y-2 block">
+            <span className="text-xs font-black uppercase tracking-wider text-slate-500">
+              Slots / Day
+            </span>
+            <input
+              type="number"
+              min={1}
+              max={12}
+              value={autoForm.slotsPerDay}
+              onChange={(event) =>
+                setAutoForm((prev) => ({ ...prev, slotsPerDay: event.target.value }))
+              }
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-[#2D70FD]"
+            />
+          </label>
+        </div>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          <label className="space-y-2 block">
+            <span className="text-xs font-black uppercase tracking-wider text-slate-500">
+              Slot Minutes
+            </span>
+            <input
+              type="number"
+              min={30}
+              max={180}
+              value={autoForm.slotMinutes}
+              onChange={(event) =>
+                setAutoForm((prev) => ({ ...prev, slotMinutes: event.target.value }))
+              }
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-[#2D70FD]"
+            />
+          </label>
+          <label className="space-y-2 block">
+            <span className="text-xs font-black uppercase tracking-wider text-slate-500">
+              Gap Minutes
+            </span>
+            <input
+              type="number"
+              min={0}
+              max={60}
+              value={autoForm.gapMinutes}
+              onChange={(event) =>
+                setAutoForm((prev) => ({ ...prev, gapMinutes: event.target.value }))
+              }
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-[#2D70FD]"
+            />
+          </label>
+          <label className="space-y-2 block">
+            <span className="text-xs font-black uppercase tracking-wider text-slate-500">
+              Sessions / Assignment
+            </span>
+            <input
+              type="number"
+              min={1}
+              max={6}
+              value={autoForm.sessionsPerAssignment}
+              onChange={(event) =>
+                setAutoForm((prev) => ({
+                  ...prev,
+                  sessionsPerAssignment: event.target.value,
+                }))
+              }
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-[#2D70FD]"
+            />
+          </label>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <label className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700">
+            <input
+              type="checkbox"
+              checked={autoForm.replaceExisting}
+              onChange={(event) =>
+                setAutoForm((prev) => ({ ...prev, replaceExisting: event.target.checked }))
+              }
+              className="h-4 w-4 accent-[#2D70FD]"
+            />
+            Replace existing timetable
+          </label>
+          <label className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700">
+            <input
+              type="checkbox"
+              checked={autoForm.includeSaturday}
+              onChange={(event) =>
+                setAutoForm((prev) => ({ ...prev, includeSaturday: event.target.checked }))
+              }
+              className="h-4 w-4 accent-[#2D70FD]"
+            />
+            Include Saturday
+          </label>
+          <label className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700">
+            <input
+              type="checkbox"
+              checked={autoForm.includeSunday}
+              onChange={(event) =>
+                setAutoForm((prev) => ({ ...prev, includeSunday: event.target.checked }))
+              }
+              className="h-4 w-4 accent-[#2D70FD]"
+            />
+            Include Sunday
+          </label>
+          <button
+            onClick={handleGenerateForAllTeachers}
+            disabled={isGeneratingAll}
+            className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-[#2D70FD] text-white font-black disabled:opacity-60"
+          >
+            {isGeneratingAll ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Bot size={16} />
+            )}
+            Generate for All Teachers
+          </button>
+        </div>
+
+        {generationSummary ? (
+          <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+            <p className="font-black text-slate-800">
+              Generated {Number(generationSummary.generatedCount) || 0} entries for{" "}
+              {Number(generationSummary.teacherCount) || 0} teacher(s).
+            </p>
+            <p className="text-slate-600 font-semibold mt-1">
+              AI schedules: {Number(generationSummary.aiGeneratedTeachers) || 0} | Rule-based fallback:{" "}
+              {Number(generationSummary.fallbackGeneratedTeachers) || 0}
+            </p>
+          </div>
+        ) : null}
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-6 md:p-8 shadow-sm">
@@ -377,6 +649,12 @@ const AdminTeacherTimetable = () => {
                             </p>
                             {item.room ? (
                               <p className="text-[10px] opacity-75 line-clamp-1">{item.room}</p>
+                            ) : null}
+                            {item.className ? (
+                              <p className="text-[10px] opacity-75 line-clamp-1">
+                                {item.gradeLevel ? `${item.gradeLevel} ` : ""}
+                                {item.className}
+                              </p>
                             ) : null}
                             <button
                               onClick={() => handleDeleteClass(item.id)}
@@ -523,6 +801,54 @@ const AdminTeacherTimetable = () => {
               </label>
             </div>
 
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="space-y-2 block">
+                <span className="text-xs font-black uppercase tracking-wider text-slate-500">
+                  Class
+                </span>
+                <select
+                  value={classForm.classId}
+                  onChange={(event) =>
+                    setClassForm((prev) => ({
+                      ...prev,
+                      classId: event.target.value,
+                    }))
+                  }
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-[#2D70FD]"
+                >
+                  <option value="">Optional</option>
+                  {classOptions.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.label || `${item.gradeLevel || ""} ${item.className || ""}`.trim()}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="space-y-2 block">
+                <span className="text-xs font-black uppercase tracking-wider text-slate-500">
+                  Subject
+                </span>
+                <select
+                  value={classForm.subjectId}
+                  onChange={(event) =>
+                    setClassForm((prev) => ({
+                      ...prev,
+                      subjectId: event.target.value,
+                    }))
+                  }
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:border-[#2D70FD]"
+                >
+                  <option value="">Optional</option>
+                  {subjectOptions.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 onClick={() => setShowAddClass(false)}
@@ -545,5 +871,15 @@ const AdminTeacherTimetable = () => {
     </div>
   );
 };
+
+const StatCard = ({ label, value, note }) => (
+  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+      {label}
+    </p>
+    <p className="mt-1 text-sm font-black text-slate-800">{value}</p>
+    {note ? <p className="text-[10px] font-bold text-slate-500 mt-1">{note}</p> : null}
+  </div>
+);
 
 export default AdminTeacherTimetable;

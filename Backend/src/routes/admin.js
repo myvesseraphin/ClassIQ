@@ -2,7 +2,9 @@ import express from "express";
 import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import multer from "multer";
+import bcrypt from "bcryptjs";
 import XLSX from "xlsx";
 import pool, { query } from "../db.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
@@ -10,6 +12,7 @@ import { uploadLimiter } from "../middleware/rateLimit.js";
 import { logAudit } from "../utils/audit.js";
 import {
   extractTimetableFromImageWithGemini,
+  generateTeacherTimetableWithGemini,
   isGeminiEnabled,
 } from "../utils/gemini.js";
 
@@ -56,6 +59,12 @@ const clamp = (value, min, max) => {
   return Math.max(min, Math.min(max, num));
 };
 
+const clampPercent = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Math.max(0, Math.min(100, Math.round(num)));
+};
+
 const toTextOrNull = (value) => {
   const text = String(value || "").trim();
   return text ? text : null;
@@ -95,7 +104,24 @@ const deleteFromSupabase = async (bucket, filePath) => {
 
 const ALLOWED_ROLES = new Set(["student", "teacher", "admin"]);
 const ALLOWED_REQUEST_STATUSES = new Set(["pending", "approved", "rejected"]);
+const DEFAULT_REQUEST_APPROVAL_ROLE = "teacher";
+const DEFAULT_SYSTEM_SETTINGS = {
+  academicYear: "",
+  terms: "Term 1, Term 2, Term 3",
+  gradingScale: "A:80-100, B:70-79, C:60-69, D:50-59, F:0-49",
+  rolePermissions:
+    "Admin: full access; Teacher: class tools + analytics; Student: learning tools",
+};
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+const normalizeSystemSettings = (settings = {}) => ({
+  academicYear: toTextOrNull(settings.academicYear) || DEFAULT_SYSTEM_SETTINGS.academicYear,
+  terms: toTextOrNull(settings.terms) || DEFAULT_SYSTEM_SETTINGS.terms,
+  gradingScale:
+    toTextOrNull(settings.gradingScale) || DEFAULT_SYSTEM_SETTINGS.gradingScale,
+  rolePermissions:
+    toTextOrNull(settings.rolePermissions) || DEFAULT_SYSTEM_SETTINGS.rolePermissions,
+});
 
 const DAY_LOOKUP = new Map([
   ["mon", 0],
@@ -317,6 +343,15 @@ const TITLE_KEYS = [
 ];
 const ROOM_KEYS = ["room", "location", "venue", "classroom", "hall"];
 const INSTRUCTOR_KEYS = ["instructor", "teacher", "lecturer", "tutor", "staff"];
+const CLASS_KEYS = [
+  "class",
+  "class_name",
+  "classname",
+  "group",
+  "section",
+  "className",
+];
+const SUBJECT_KEYS = ["subject", "course", "discipline", "subjectName"];
 
 const parseImportedScheduleRows = (rows, { defaultInstructor } = {}) => {
   if (!Array.isArray(rows)) return { classes: [], skipped: [] };
@@ -342,6 +377,8 @@ const parseImportedScheduleRows = (rows, { defaultInstructor } = {}) => {
     const titleRaw = pickFromRow(rowMap, TITLE_KEYS);
     const roomRaw = pickFromRow(rowMap, ROOM_KEYS);
     const instructorRaw = pickFromRow(rowMap, INSTRUCTOR_KEYS);
+    const classRaw = pickFromRow(rowMap, CLASS_KEYS);
+    const subjectRaw = pickFromRow(rowMap, SUBJECT_KEYS);
 
     const day = parseDayValue(dayRaw);
 
@@ -351,6 +388,8 @@ const parseImportedScheduleRows = (rows, { defaultInstructor } = {}) => {
     const title = toTextOrNull(titleRaw);
     const room = toTextOrNull(roomRaw);
     const instructor = toTextOrNull(instructorRaw) || toTextOrNull(defaultInstructor);
+    const className = toTextOrNull(classRaw);
+    const subjectName = toTextOrNull(subjectRaw);
 
     if (day === null) {
       skipped.push({ row: rowNumber, reason: "Missing or invalid day value." });
@@ -392,6 +431,8 @@ const parseImportedScheduleRows = (rows, { defaultInstructor } = {}) => {
       title: title.slice(0, 220),
       room: room ? room.slice(0, 120) : null,
       instructor: instructor ? instructor.slice(0, 120) : null,
+      className: className ? className.slice(0, 120) : null,
+      subjectName: subjectName ? subjectName.slice(0, 120) : null,
     });
   });
 
@@ -403,6 +444,143 @@ const parseBooleanInput = (value) => {
     .trim()
     .toLowerCase();
   return text === "1" || text === "true" || text === "yes" || text === "on";
+};
+
+const UNIT_STATUS_MARKER_REGEX = /\[UNIT_STATUS:(completed|in_progress)\]/i;
+
+const parseUnitCompletionFromNotes = (notes) => {
+  const match = String(notes || "").match(UNIT_STATUS_MARKER_REGEX);
+  if (!match) return false;
+  return String(match[1] || "").toLowerCase() === "completed";
+};
+
+const stripUnitStatusMarkerFromNotes = (notes) =>
+  String(notes || "")
+    .replace(UNIT_STATUS_MARKER_REGEX, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+const withUnitStatusMarker = (notes, unitCompleted) => {
+  const clean = stripUnitStatusMarkerFromNotes(notes);
+  const marker = unitCompleted
+    ? "[UNIT_STATUS:completed]"
+    : "[UNIT_STATUS:in_progress]";
+  return clean ? `${marker}\n${clean}` : marker;
+};
+
+const normalizeTimetableGenerationOptions = (body = {}) => {
+  const includeSaturday = parseBooleanInput(body.includeSaturday);
+  const includeSunday = parseBooleanInput(body.includeSunday);
+  const dayLabels = DAY_LABELS.filter((_, idx) => {
+    if (idx <= 4) return true;
+    if (idx === 5) return includeSaturday;
+    if (idx === 6) return includeSunday;
+    return false;
+  });
+  const activeDays = dayLabels.length
+    ? dayLabels.map((label) => DAY_LOOKUP.get(label.toLowerCase()))
+    : [0, 1, 2, 3, 4];
+
+  const startTime = parseTimeValue(body.dayStartTime) || "08:00";
+  const slotMinutes = clamp(Number(body.slotMinutes) || 50, 30, 180);
+  const gapMinutes = clamp(Number(body.gapMinutes) || 10, 0, 60);
+  const slotsPerDay = clamp(Number(body.slotsPerDay) || 6, 1, 12);
+  const sessionsPerAssignment = clamp(
+    Number(body.sessionsPerAssignment) || 2,
+    1,
+    6,
+  );
+
+  return {
+    mode: String(body.mode || "ai")
+      .trim()
+      .toLowerCase(),
+    replaceExisting: parseBooleanInput(body.replaceExisting),
+    startTime,
+    slotMinutes,
+    gapMinutes,
+    slotsPerDay,
+    sessionsPerAssignment,
+    activeDays,
+    dayLabels,
+  };
+};
+
+const addMinutesToTime = (timeValue, minutesToAdd) => {
+  const startMinutes = timeToMinutes(timeValue);
+  if (startMinutes === null) return null;
+  const total = startMinutes + Number(minutesToAdd || 0);
+  if (total < 0 || total > 24 * 60) return null;
+  const hours = Math.floor(total / 60);
+  const minutes = total % 60;
+  return toTimeString(hours, minutes);
+};
+
+const buildRuleBasedTeacherSchedule = ({
+  teacher,
+  assignments,
+  options,
+}) => {
+  if (!teacher || !Array.isArray(assignments) || assignments.length === 0) return [];
+  const scheduleRows = [];
+  const startMinutes = timeToMinutes(options.startTime);
+  if (startMinutes === null) return [];
+  const slotSpan = options.slotMinutes + options.gapMinutes;
+
+  const lessonPool = [];
+  assignments.forEach((assignment) => {
+    for (let i = 0; i < options.sessionsPerAssignment; i += 1) {
+      lessonPool.push({
+        classId: assignment.classId || null,
+        subjectId: assignment.subjectId || null,
+        className: assignment.className || null,
+        gradeLevel: assignment.gradeLevel || null,
+        subjectName: assignment.subjectName || assignment.subject || "Subject",
+        lessonTopic: assignment.lessonTopic || null,
+      });
+    }
+  });
+  if (!lessonPool.length) return [];
+
+  let poolIndex = 0;
+  options.activeDays.forEach((day) => {
+    for (let slotIndex = 0; slotIndex < options.slotsPerDay; slotIndex += 1) {
+      if (!lessonPool.length) break;
+      const lesson = lessonPool[poolIndex % lessonPool.length];
+      poolIndex += 1;
+
+      const offset = slotIndex * slotSpan;
+      const startTime = addMinutesToTime(options.startTime, offset);
+      const endTime = startTime
+        ? addMinutesToTime(startTime, options.slotMinutes)
+        : null;
+      if (!startTime || !endTime) continue;
+
+      const labelParts = [
+        lesson.subjectName,
+        lesson.className ? `${lesson.gradeLevel ? `${lesson.gradeLevel} ` : ""}${lesson.className}` : null,
+      ].filter(Boolean);
+      const titleBase = labelParts.join(" - ");
+      const title = lesson.lessonTopic
+        ? `${titleBase}: ${lesson.lessonTopic}`.slice(0, 220)
+        : titleBase.slice(0, 220);
+
+      scheduleRows.push({
+        day,
+        startTime,
+        endTime,
+        title: title || "Class Session",
+        room: lesson.className ? `Room ${lesson.className}`.slice(0, 120) : null,
+        instructor: teacher.name || teacher.email || "Teacher",
+        classId: lesson.classId,
+        subjectId: lesson.subjectId,
+        className: lesson.className,
+        subjectName: lesson.subjectName,
+      });
+    }
+  });
+
+  return scheduleRows;
 };
 
 const resolveTeacherById = async (teacherId) => {
@@ -439,7 +617,91 @@ const mapScheduleClass = (row) => ({
   title: row.title,
   room: row.room || null,
   instructor: row.instructor || null,
+  classId: row.classId || null,
+  className: row.className || null,
+  gradeLevel: row.gradeLevel || null,
+  subjectId: row.subjectId || null,
+  subjectName: row.subjectName || null,
 });
+
+const getCurrentDayIndex = () => (new Date().getDay() + 6) % 7;
+
+const buildScheduleInsights = (rows) => {
+  const classes = Array.isArray(rows) ? rows.map(mapScheduleClass) : [];
+  const now = new Date();
+  const currentDay = getCurrentDayIndex();
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+  let weeklyMinutes = 0;
+  let todayMinutes = 0;
+  let currentClass = null;
+  let nextClassToday = null;
+
+  for (const item of classes) {
+    const startMinutes = timeToMinutes(item.startTime);
+    const endMinutes = timeToMinutes(item.endTime);
+    if (
+      startMinutes === null ||
+      endMinutes === null ||
+      endMinutes <= startMinutes
+    ) {
+      continue;
+    }
+    const duration = endMinutes - startMinutes;
+    weeklyMinutes += duration;
+    if (item.day === currentDay) {
+      todayMinutes += duration;
+      if (startMinutes <= nowMinutes && nowMinutes < endMinutes) {
+        currentClass = {
+          ...item,
+          remainingMinutes: Math.max(endMinutes - nowMinutes, 0),
+        };
+      } else if (nowMinutes < startMinutes) {
+        if (!nextClassToday || startMinutes < timeToMinutes(nextClassToday.startTime)) {
+          nextClassToday = {
+            ...item,
+            startsInMinutes: startMinutes - nowMinutes,
+          };
+        }
+      }
+    }
+  }
+
+  const minutesToHours = (minutes) => Number((minutes / 60).toFixed(2));
+  return {
+    weeklyHours: minutesToHours(weeklyMinutes),
+    todayHours: minutesToHours(todayMinutes),
+    currentClass,
+    nextClassToday,
+  };
+};
+
+let scheduleClassMetaCache = null;
+const getScheduleClassMeta = async () => {
+  if (scheduleClassMetaCache) return scheduleClassMetaCache;
+  const { rows } = await query(
+    `SELECT
+        EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_schema = 'public'
+             AND table_name = 'schedule_classes'
+             AND column_name = 'class_id'
+        ) AS "hasClassId",
+        EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_schema = 'public'
+             AND table_name = 'schedule_classes'
+             AND column_name = 'subject_id'
+        ) AS "hasSubjectId"`,
+  );
+  scheduleClassMetaCache = {
+    hasClassId: Boolean(rows[0]?.hasClassId),
+    hasSubjectId: Boolean(rows[0]?.hasSubjectId),
+  };
+  return scheduleClassMetaCache;
+};
 
 const uploadDir = path.resolve("uploads");
 fs.mkdirSync(uploadDir, { recursive: true });
@@ -731,9 +993,15 @@ router.patch("/users/:id", async (req, res, next) => {
     const { rows: updatedRows } = await query(
       `UPDATE users
           SET role = COALESCE($2, role),
-              email_verified = COALESCE($3, email_verified)
+              email_verified = COALESCE($3, email_verified),
+              token_version = CASE
+                WHEN COALESCE($2, role) IS DISTINCT FROM role
+                  OR COALESCE($3, email_verified) IS DISTINCT FROM email_verified
+                THEN token_version + 1
+                ELSE token_version
+              END
         WHERE id = $1
-        RETURNING id, email, role, email_verified AS "emailVerified"`,
+        RETURNING id, email, role, email_verified AS "emailVerified", token_version AS "tokenVersion"`,
       [userId, roleValue, emailVerifiedValue],
     );
 
@@ -882,37 +1150,125 @@ router.patch("/requests/:id", async (req, res, next) => {
       });
     }
 
-    const { rows } = await query(
-      `UPDATE access_requests
-          SET status = $2
-        WHERE id = $1
-        RETURNING id,
-                  full_name AS "fullName",
-                  email,
-                  school,
-                  status,
-                  created_at AS "createdAt"`,
-      [requestId, statusValue],
-    );
+    const client = await pool.connect();
+    let updatedRequest = null;
+    let provisionedAccount = null;
+    try {
+      await client.query("BEGIN");
+      const { rows: requestRows } = await client.query(
+        `SELECT id,
+                full_name AS "fullName",
+                email,
+                school,
+                school_id AS "schoolId",
+                status,
+                created_at AS "createdAt"
+           FROM access_requests
+          WHERE id = $1
+          FOR UPDATE`,
+        [requestId],
+      );
 
-    if (!rows[0]) {
-      return res.status(404).json({ error: "Access request not found." });
+      const currentRequest = requestRows[0];
+      if (!currentRequest) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Access request not found." });
+      }
+
+      if (statusValue === "approved") {
+        const { rows: existingUserRows } = await client.query(
+          `SELECT id, email, role
+             FROM users
+            WHERE lower(email) = lower($1)
+            LIMIT 1
+            FOR UPDATE`,
+          [currentRequest.email],
+        );
+
+        let user = existingUserRows[0] || null;
+        let created = false;
+
+        if (!user) {
+          const temporaryPassword = crypto.randomBytes(24).toString("hex");
+          const passwordHash = await bcrypt.hash(temporaryPassword, 10);
+          const { rows: insertedUserRows } = await client.query(
+            `INSERT INTO users (email, password_hash, role, email_verified)
+             VALUES ($1, $2, $3, $4)
+             RETURNING id, email, role`,
+            [currentRequest.email, passwordHash, DEFAULT_REQUEST_APPROVAL_ROLE, false],
+          );
+          user = insertedUserRows[0];
+          created = true;
+        }
+
+        const fullNameParts = String(currentRequest.fullName || "")
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean);
+        const firstName = fullNameParts[0] || "New";
+        const lastName = fullNameParts.slice(1).join(" ") || "User";
+
+        await client.query(
+          `INSERT INTO user_profiles (
+              user_id,
+              first_name,
+              last_name,
+              school_name,
+              school_id
+            )
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (user_id)
+           DO UPDATE SET
+             school_name = COALESCE(EXCLUDED.school_name, user_profiles.school_name),
+             school_id = COALESCE(EXCLUDED.school_id, user_profiles.school_id)`,
+          [user.id, firstName, lastName, currentRequest.school || null, currentRequest.schoolId],
+        );
+
+        provisionedAccount = {
+          userId: user.id,
+          email: user.email,
+          role: user.role,
+          created,
+        };
+      }
+
+      const { rows: updatedRows } = await client.query(
+        `UPDATE access_requests
+            SET status = $2
+          WHERE id = $1
+          RETURNING id,
+                    full_name AS "fullName",
+                    email,
+                    school,
+                    status,
+                    created_at AS "createdAt"`,
+        [requestId, statusValue],
+      );
+      updatedRequest = updatedRows[0];
+      await client.query("COMMIT");
+    } catch (txError) {
+      await client.query("ROLLBACK");
+      throw txError;
+    } finally {
+      client.release();
     }
 
     await logAudit(req, "admin_access_request_update", {
       requestId,
       status: statusValue,
+      provisionedUserId: provisionedAccount?.userId,
     });
 
     return res.json({
       request: {
-        id: rows[0].id,
-        fullName: rows[0].fullName,
-        email: rows[0].email,
-        school: rows[0].school,
-        status: rows[0].status,
-        createdAt: formatShortDate(rows[0].createdAt),
+        id: updatedRequest.id,
+        fullName: updatedRequest.fullName,
+        email: updatedRequest.email,
+        school: updatedRequest.school,
+        status: updatedRequest.status,
+        createdAt: formatShortDate(updatedRequest.createdAt),
       },
+      provisionedAccount,
     });
   } catch (error) {
     return next(error);
@@ -1145,6 +1501,7 @@ router.get("/curriculum", async (req, res, next) => {
                 l.unit_title AS "unitTitle",
                 l.lesson_number AS "lessonNumber",
                 l.topic,
+                l.notes,
                 l.effective_date AS "effectiveDate",
                 l.updated_at AS "updatedAt",
                 p.first_name AS "teacherFirstName",
@@ -1266,6 +1623,7 @@ router.get("/curriculum", async (req, res, next) => {
         unitTitle: row.unitTitle || row.topic || "Curriculum Unit",
         completionPct,
         assessmentCompletionPct,
+        unitCompleted: parseUnitCompletionFromNotes(row.notes),
         isDelayed,
         topics: [
           {
@@ -1277,8 +1635,67 @@ router.get("/curriculum", async (req, res, next) => {
       });
     }
 
+    const tree = Array.from(grouped.values());
+    const allUnits = tree.flatMap((branch) => branch.units || []);
+    const delayedUnits = allUnits.filter((unit) => unit.isDelayed).length;
+    const avgCompletion = allUnits.length
+      ? clampPercent(
+          allUnits.reduce((sum, unit) => sum + (Number(unit.completionPct) || 0), 0) /
+            allUnits.length,
+        )
+      : 0;
+    const avgAssessmentCompletion = allUnits.length
+      ? clampPercent(
+          allUnits.reduce(
+            (sum, unit) => sum + (Number(unit.assessmentCompletionPct) || 0),
+            0,
+          ) / allUnits.length,
+        )
+      : 0;
+
+    const teacherProgressMap = new Map();
+    for (const unit of allUnits) {
+      const key = String(unit.teacherId || "unassigned");
+      if (!teacherProgressMap.has(key)) {
+        teacherProgressMap.set(key, {
+          teacherId: unit.teacherId || null,
+          teacherName: unit.teacherName || "Unassigned",
+          units: 0,
+          delayedUnits: 0,
+          completionTotal: 0,
+          assessmentCompletionTotal: 0,
+        });
+      }
+      const entry = teacherProgressMap.get(key);
+      entry.units += 1;
+      entry.delayedUnits += unit.isDelayed ? 1 : 0;
+      entry.completionTotal += Number(unit.completionPct) || 0;
+      entry.assessmentCompletionTotal += Number(unit.assessmentCompletionPct) || 0;
+    }
+
+    const teacherProgress = Array.from(teacherProgressMap.values())
+      .map((row) => ({
+        teacherId: row.teacherId,
+        teacherName: row.teacherName,
+        units: row.units,
+        delayedUnits: row.delayedUnits,
+        completionPct: row.units ? clampPercent(row.completionTotal / row.units) : 0,
+        assessmentCompletionPct: row.units
+          ? clampPercent(row.assessmentCompletionTotal / row.units)
+          : 0,
+      }))
+      .sort((a, b) => b.completionPct - a.completionPct);
+
     return res.json({
-      tree: Array.from(grouped.values()),
+      summary: {
+        totalBranches: tree.length,
+        totalUnits: allUnits.length,
+        delayedUnits,
+        avgCompletion,
+        avgAssessmentCompletion,
+      },
+      tree,
+      teacherProgress,
     });
   } catch (error) {
     return next(error);
@@ -1389,6 +1806,13 @@ router.get("/teacher-analytics", async (req, res, next) => {
           lessonLoggingConsistency: consistency,
           assessmentCompletionRate: completionRate,
           averageStudentPerformance: row.avgGrade || 0,
+          activityLevel: clampPercent((Number(row.recentLessons) || 0) * 10),
+          activityBand:
+            (Number(row.recentLessons) || 0) >= 8
+              ? "High"
+              : (Number(row.recentLessons) || 0) >= 4
+                ? "Medium"
+                : "Low",
           recurringWeakTopicCount: Array.isArray(row.weakTopics) ? row.weakTopics.length : 0,
           weakTopics: Array.isArray(row.weakTopics) ? row.weakTopics : [],
           lastLogin: row.lastLoginAt ? formatDateTime(row.lastLoginAt) : null,
@@ -1825,37 +2249,49 @@ router.get("/lesson-progress", async (req, res, next) => {
       return res.status(400).json({ error: "Invalid subject id." });
     }
 
-    const { rows } = await query(
-      `SELECT l.id,
-              l.class_id AS "classId",
-              l.subject_id AS "subjectId",
-              c.class_name AS "className",
-              c.grade_level AS "gradeLevel",
-              s.name AS "subjectName",
-              l.teacher_id AS "teacherId",
-              tp.first_name AS "teacherFirstName",
-              tp.last_name AS "teacherLastName",
-              tu.email AS "teacherEmail",
-              l.unit_title AS "unitTitle",
-              l.lesson_number AS "lessonNumber",
-              l.topic,
-              l.page_from AS "pageFrom",
-              l.page_to AS "pageTo",
-              l.term,
-              l.week_number AS "weekNumber",
-              l.notes,
-              l.effective_date AS "effectiveDate",
-              l.updated_at AS "updatedAt"
-         FROM class_subject_lessons l
-         JOIN classes c ON c.id = l.class_id
-         JOIN subjects s ON s.id = l.subject_id
-         LEFT JOIN users tu ON tu.id = l.teacher_id
-         LEFT JOIN user_profiles tp ON tp.user_id = l.teacher_id
-        WHERE ($1::uuid IS NULL OR l.class_id = $1)
-          AND ($2::uuid IS NULL OR l.subject_id = $2)
-        ORDER BY c.grade_level, c.class_name, s.name`,
-      [classFilter || null, subjectFilter || null],
-    );
+    const [lessonResult, systemSettingResult] = await Promise.all([
+      query(
+        `SELECT l.id,
+                l.class_id AS "classId",
+                l.subject_id AS "subjectId",
+                c.class_name AS "className",
+                c.grade_level AS "gradeLevel",
+                s.name AS "subjectName",
+                l.teacher_id AS "teacherId",
+                tp.first_name AS "teacherFirstName",
+                tp.last_name AS "teacherLastName",
+                tu.email AS "teacherEmail",
+                l.unit_title AS "unitTitle",
+                l.lesson_number AS "lessonNumber",
+                l.topic,
+                l.page_from AS "pageFrom",
+                l.page_to AS "pageTo",
+                l.term,
+                l.week_number AS "weekNumber",
+                l.notes,
+                l.effective_date AS "effectiveDate",
+                l.updated_at AS "updatedAt"
+           FROM class_subject_lessons l
+           JOIN classes c ON c.id = l.class_id
+           JOIN subjects s ON s.id = l.subject_id
+           LEFT JOIN users tu ON tu.id = l.teacher_id
+           LEFT JOIN user_profiles tp ON tp.user_id = l.teacher_id
+          WHERE ($1::uuid IS NULL OR l.class_id = $1)
+            AND ($2::uuid IS NULL OR l.subject_id = $2)
+          ORDER BY c.grade_level, c.class_name, s.name`,
+        [classFilter || null, subjectFilter || null],
+      ),
+      query(
+        `SELECT academic_year AS "academicYear",
+                terms,
+                grading_scale AS "gradingScale",
+                role_permissions AS "rolePermissions"
+           FROM system_settings
+          WHERE id = 1`,
+      ),
+    ]);
+    const rows = lessonResult.rows;
+    const systemSettings = normalizeSystemSettings(systemSettingResult.rows[0] || {});
 
     return res.json({
       lessons: rows.map((row) => ({
@@ -1877,10 +2313,12 @@ router.get("/lesson-progress", async (req, res, next) => {
         pageTo: row.pageTo,
         term: row.term,
         weekNumber: row.weekNumber,
-        notes: row.notes,
+        unitCompleted: parseUnitCompletionFromNotes(row.notes),
+        notes: stripUnitStatusMarkerFromNotes(row.notes),
         effectiveDate: formatShortDate(row.effectiveDate),
         updatedAt: row.updatedAt,
       })),
+      systemSettings,
     });
   } catch (error) {
     return next(error);
@@ -1900,6 +2338,7 @@ router.put("/lesson-progress", async (req, res, next) => {
       pageTo,
       term,
       weekNumber,
+      unitCompleted,
       notes,
       effectiveDate,
     } = req.body || {};
@@ -1912,6 +2351,12 @@ router.put("/lesson-progress", async (req, res, next) => {
     }
     if (!String(topic || "").trim()) {
       return res.status(400).json({ error: "Topic is required." });
+    }
+    if (!String(term || "").trim()) {
+      return res.status(400).json({ error: "Term is required." });
+    }
+    if (!String(unitTitle || "").trim()) {
+      return res.status(400).json({ error: "Unit title is required." });
     }
     if (teacherId && !isUuid(teacherId)) {
       return res.status(400).json({ error: "Invalid teacherId." });
@@ -1936,6 +2381,54 @@ router.put("/lesson-progress", async (req, res, next) => {
     }
 
     const resolvedTeacherId = isUuid(teacherId || "") ? teacherId : null;
+    const unitCompletedValue = parseBooleanInput(unitCompleted);
+
+    const { rows: subjectRows } = await query(
+      `SELECT name
+         FROM subjects
+        WHERE id = $1
+        LIMIT 1`,
+      [subjectId],
+    );
+    const subjectName = subjectRows[0]?.name || null;
+
+    if (unitCompletedValue) {
+      const { rows: assessmentRows } = await query(
+        `WITH student_base AS (
+           SELECT u.id AS "studentId",
+                  COALESCE(sp.class_id, up.class_id) AS "classId"
+             FROM users u
+             LEFT JOIN student_profiles sp ON sp.user_id = u.id
+             LEFT JOIN user_profiles up ON up.user_id = u.id
+            WHERE u.role = 'student'
+         )
+         SELECT COUNT(*)::int AS total
+           FROM assessments a
+           JOIN student_base sb
+             ON sb."studentId" = COALESCE(a.student_id, a.user_id)
+          WHERE sb."classId" = $1
+            AND (
+              a.subject_id = $2
+              OR ($3::text IS NOT NULL AND lower(a.subject) = lower($3))
+            )
+            AND a.status = 'Completed'
+            AND (
+              lower(COALESCE(a.type, '')) LIKE '%unit%'
+              OR lower(COALESCE(a.type, '')) LIKE '%end of unit%'
+            )`,
+        [classId, subjectId, subjectName],
+      );
+      const totalEndUnitAssessments = Number(assessmentRows[0]?.total) || 0;
+      if (totalEndUnitAssessments < 1) {
+        return res.status(400).json({
+          error:
+            "Units cannot be marked complete without at least one completed end-unit assessment for this class and subject.",
+          code: "END_UNIT_ASSESSMENT_REQUIRED",
+        });
+      }
+    }
+
+    const notesWithStatus = withUnitStatusMarker(notes, unitCompletedValue);
     const { rows } = await query(
       `INSERT INTO class_subject_lessons (
           class_id,
@@ -2000,12 +2493,61 @@ router.put("/lesson-progress", async (req, res, next) => {
         pageToValue,
         String(term || "").trim() || null,
         toNumberOrNull(weekNumber),
-        String(notes || "").trim() || null,
+        notesWithStatus || null,
         String(effectiveDate || "").trim() || null,
       ],
     );
 
-    return res.json({ lesson: rows[0] });
+    return res.json({
+      lesson: {
+        ...rows[0],
+        unitCompleted: unitCompletedValue,
+        notes: stripUnitStatusMarkerFromNotes(rows[0]?.notes),
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.put("/system-settings", async (req, res, next) => {
+  try {
+    const incoming = req.body || {};
+    const normalized = normalizeSystemSettings(incoming);
+    const { rows } = await query(
+      `INSERT INTO system_settings (
+          id,
+          academic_year,
+          terms,
+          grading_scale,
+          role_permissions,
+          updated_by
+        )
+       VALUES (1, $1, $2, $3, $4, $5)
+       ON CONFLICT (id)
+       DO UPDATE SET
+         academic_year = EXCLUDED.academic_year,
+         terms = EXCLUDED.terms,
+         grading_scale = EXCLUDED.grading_scale,
+         role_permissions = EXCLUDED.role_permissions,
+         updated_by = EXCLUDED.updated_by,
+         updated_at = now()
+       RETURNING academic_year AS "academicYear",
+                 terms,
+                 grading_scale AS "gradingScale",
+                 role_permissions AS "rolePermissions",
+                 updated_at AS "updatedAt"`,
+      [
+        normalized.academicYear,
+        normalized.terms,
+        normalized.gradingScale,
+        normalized.rolePermissions,
+        req.user.id,
+      ],
+    );
+
+    await logAudit(req, "admin_system_settings_update", {});
+    return res.json({ systemSettings: rows[0] });
   } catch (error) {
     return next(error);
   }
@@ -2023,6 +2565,25 @@ router.get("/teacher-schedule", async (req, res, next) => {
       return res.status(404).json({ error: "Teacher not found." });
     }
 
+    const scheduleMeta = await getScheduleClassMeta();
+    const classSelect = scheduleMeta.hasClassId
+      ? `sc.class_id AS "classId",
+              c.class_name AS "className",
+              c.grade_level AS "gradeLevel"`
+      : `NULL::uuid AS "classId",
+              NULL::text AS "className",
+              NULL::text AS "gradeLevel"`;
+    const subjectSelect = scheduleMeta.hasSubjectId
+      ? `sc.subject_id AS "subjectId",
+              s.name AS "subjectName"`
+      : `NULL::uuid AS "subjectId",
+              NULL::text AS "subjectName"`;
+    const classJoin = scheduleMeta.hasClassId
+      ? `LEFT JOIN classes c ON c.id = sc.class_id`
+      : "";
+    const subjectJoin = scheduleMeta.hasSubjectId
+      ? `LEFT JOIN subjects s ON s.id = sc.subject_id`
+      : "";
     const { rows } = await query(
       `SELECT id,
               day_of_week AS "day",
@@ -2030,16 +2591,27 @@ router.get("/teacher-schedule", async (req, res, next) => {
               end_time AS "endTime",
               title,
               room,
-              instructor
-         FROM schedule_classes
-        WHERE user_id = $1
-        ORDER BY day_of_week, start_time`,
+              instructor,
+              ${classSelect},
+              ${subjectSelect}
+         FROM schedule_classes sc
+         ${classJoin}
+         ${subjectJoin}
+         WHERE sc.user_id = $1
+         ORDER BY day_of_week, start_time`,
       [teacher.id],
     );
+    const insights = buildScheduleInsights(rows);
 
     return res.json({
       teacher,
       classes: rows.map(mapScheduleClass),
+      teachingHours: {
+        weeklyHours: insights.weeklyHours,
+        todayHours: insights.todayHours,
+      },
+      currentClass: insights.currentClass,
+      nextClassToday: insights.nextClassToday,
     });
   } catch (error) {
     return next(error);
@@ -2058,6 +2630,7 @@ router.post("/teacher-schedule", async (req, res, next) => {
       return res.status(404).json({ error: "Teacher not found." });
     }
 
+    const scheduleMeta = await getScheduleClassMeta();
     const day = parseDayValue(req.body?.day);
     const startTime = parseTimeValue(req.body?.startTime);
     const endTime = parseTimeValue(req.body?.endTime);
@@ -2065,6 +2638,25 @@ router.post("/teacher-schedule", async (req, res, next) => {
     const room = toTextOrNull(req.body?.room);
     const instructor =
       toTextOrNull(req.body?.instructor) || toTextOrNull(teacher.name);
+    const classIdValue = toTextOrNull(req.body?.classId);
+    const subjectIdValue = toTextOrNull(req.body?.subjectId);
+
+    if (classIdValue && !isUuid(classIdValue)) {
+      return res.status(400).json({ error: "Invalid classId." });
+    }
+    if (subjectIdValue && !isUuid(subjectIdValue)) {
+      return res.status(400).json({ error: "Invalid subjectId." });
+    }
+    if (!scheduleMeta.hasClassId && classIdValue) {
+      return res.status(400).json({
+        error: "Timetable schema is missing class linkage. Apply latest migrations.",
+      });
+    }
+    if (!scheduleMeta.hasSubjectId && subjectIdValue) {
+      return res.status(400).json({
+        error: "Timetable schema is missing subject linkage. Apply latest migrations.",
+      });
+    }
 
     if (day === null || !startTime || !endTime || !title) {
       return res.status(400).json({
@@ -2084,25 +2676,52 @@ router.post("/teacher-schedule", async (req, res, next) => {
       });
     }
 
+    const insertColumns = [
+      "user_id",
+      "day_of_week",
+      "start_time",
+      "end_time",
+      "title",
+      "room",
+      "instructor",
+    ];
+    const insertValues = [
+      teacher.id,
+      day,
+      startTime,
+      endTime,
+      title,
+      room,
+      instructor,
+    ];
+    if (scheduleMeta.hasClassId) {
+      insertColumns.push("class_id");
+      insertValues.push(classIdValue);
+    }
+    if (scheduleMeta.hasSubjectId) {
+      insertColumns.push("subject_id");
+      insertValues.push(subjectIdValue);
+    }
+    const placeholders = insertColumns.map((_, index) => `$${index + 1}`).join(", ");
+    const classReturn = scheduleMeta.hasClassId
+      ? `class_id AS "classId"`
+      : `NULL::uuid AS "classId"`;
+    const subjectReturn = scheduleMeta.hasSubjectId
+      ? `subject_id AS "subjectId"`
+      : `NULL::uuid AS "subjectId"`;
     const { rows } = await query(
-      `INSERT INTO schedule_classes (
-          user_id,
-          day_of_week,
-          start_time,
-          end_time,
-          title,
-          room,
-          instructor
-        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO schedule_classes (${insertColumns.join(", ")})
+       VALUES (${placeholders})
        RETURNING id,
                  day_of_week AS "day",
                  start_time AS "startTime",
                  end_time AS "endTime",
                  title,
                  room,
-                 instructor`,
-      [teacher.id, day, startTime, endTime, title, room, instructor],
+                 instructor,
+                 ${classReturn},
+                 ${subjectReturn}`,
+      insertValues,
     );
 
     await logAudit(req, "admin_teacher_schedule_add", {
@@ -2111,6 +2730,8 @@ router.post("/teacher-schedule", async (req, res, next) => {
       day,
       startTime,
       endTime,
+      classId: classIdValue || undefined,
+      subjectId: subjectIdValue || undefined,
     });
 
     return res.status(201).json({
@@ -2197,6 +2818,7 @@ router.post(
         [".png", ".jpg", ".jpeg", ".webp"].includes(ext);
 
       let normalizedRows = { classes: [], skipped: [] };
+      const scheduleMeta = await getScheduleClassMeta();
 
       if (isImageUpload) {
         if (!isGeminiEnabled()) {
@@ -2249,6 +2871,32 @@ router.post(
 
       const inserted = [];
       let replacedCount = 0;
+      const classLookup = new Map();
+      const subjectLookup = new Map();
+      if (scheduleMeta.hasClassId) {
+        const { rows: classRows } = await query(
+          `SELECT id, class_name AS "className", grade_level AS "gradeLevel"
+             FROM classes`,
+        );
+        classRows.forEach((row) => {
+          const direct = normalizeHeaderToken(row.className);
+          if (direct) classLookup.set(direct, row.id);
+          const combined = normalizeHeaderToken(
+            `${row.gradeLevel || ""} ${row.className || ""}`,
+          );
+          if (combined) classLookup.set(combined, row.id);
+        });
+      }
+      if (scheduleMeta.hasSubjectId) {
+        const { rows: subjectRows } = await query(
+          `SELECT id, name
+             FROM subjects`,
+        );
+        subjectRows
+          .map((row) => [normalizeHeaderToken(row.name), row.id])
+          .filter(([key]) => Boolean(key))
+          .forEach(([key, value]) => subjectLookup.set(key, value));
+      }
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
@@ -2262,33 +2910,60 @@ router.post(
         }
 
         for (const item of normalizedRows.classes) {
+          const classId = scheduleMeta.hasClassId
+            ? classLookup.get(normalizeHeaderToken(item.className || "")) || null
+            : null;
+          const subjectId = scheduleMeta.hasSubjectId
+            ? subjectLookup.get(normalizeHeaderToken(item.subjectName || "")) || null
+            : null;
+          const insertColumns = [
+            "user_id",
+            "day_of_week",
+            "start_time",
+            "end_time",
+            "title",
+            "room",
+            "instructor",
+          ];
+          const insertValues = [
+            teacher.id,
+            item.day,
+            item.startTime,
+            item.endTime,
+            item.title,
+            item.room,
+            item.instructor,
+          ];
+          if (scheduleMeta.hasClassId) {
+            insertColumns.push("class_id");
+            insertValues.push(classId);
+          }
+          if (scheduleMeta.hasSubjectId) {
+            insertColumns.push("subject_id");
+            insertValues.push(subjectId);
+          }
+          const placeholders = insertColumns
+            .map((_, index) => `$${index + 1}`)
+            .join(", ");
+          const classReturn = scheduleMeta.hasClassId
+            ? `class_id AS "classId"`
+            : `NULL::uuid AS "classId"`;
+          const subjectReturn = scheduleMeta.hasSubjectId
+            ? `subject_id AS "subjectId"`
+            : `NULL::uuid AS "subjectId"`;
           const { rows } = await client.query(
-            `INSERT INTO schedule_classes (
-                user_id,
-                day_of_week,
-                start_time,
-                end_time,
-                title,
-                room,
-                instructor
-              )
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
+            `INSERT INTO schedule_classes (${insertColumns.join(", ")})
+             VALUES (${placeholders})
           RETURNING id,
                     day_of_week AS "day",
                     start_time AS "startTime",
                     end_time AS "endTime",
                     title,
                     room,
-                    instructor`,
-            [
-              teacher.id,
-              item.day,
-              item.startTime,
-              item.endTime,
-              item.title,
-              item.room,
-              item.instructor,
-            ],
+                    instructor,
+                    ${classReturn},
+                    ${subjectReturn}`,
+            insertValues,
           );
           if (rows[0]) inserted.push(rows[0]);
         }
@@ -2325,6 +3000,274 @@ router.post(
     }
   },
 );
+
+router.post("/teacher-schedule/auto-generate", async (req, res, next) => {
+  try {
+    const options = normalizeTimetableGenerationOptions(req.body || {});
+    const scheduleMeta = await getScheduleClassMeta();
+
+    const { rows: assignmentRows } = await query(
+      `SELECT t.id AS "teacherId",
+              t.email AS "teacherEmail",
+              p.first_name AS "firstName",
+              p.last_name AS "lastName",
+              ta.class_id AS "classId",
+              ta.subject_id AS "subjectId",
+              COALESCE(c.class_name, ta.class_name) AS "className",
+              COALESCE(c.grade_level, ta.grade_level) AS "gradeLevel",
+              COALESCE(s.name, ta.subject) AS "subjectName",
+              l.topic AS "lessonTopic"
+         FROM users t
+         JOIN teacher_assignments ta ON ta.teacher_id = t.id
+         LEFT JOIN user_profiles p ON p.user_id = t.id
+         LEFT JOIN classes c ON c.id = ta.class_id
+         LEFT JOIN subjects s ON s.id = ta.subject_id
+         LEFT JOIN class_subject_lessons l
+           ON l.class_id = ta.class_id
+          AND l.subject_id = ta.subject_id
+        WHERE t.role = 'teacher'
+        ORDER BY t.id, ta.created_at ASC`,
+    );
+
+    if (!assignmentRows.length) {
+      return res.status(400).json({
+        error: "No teacher assignments found. Assign classes/subjects first.",
+      });
+    }
+
+    const teacherMap = new Map();
+    assignmentRows.forEach((row) => {
+      const teacherId = row.teacherId;
+      if (!teacherMap.has(teacherId)) {
+        teacherMap.set(teacherId, {
+          id: teacherId,
+          email: row.teacherEmail,
+          name:
+            [row.firstName, row.lastName].filter(Boolean).join(" ") ||
+            row.teacherEmail ||
+            "Teacher",
+          assignments: [],
+        });
+      }
+      teacherMap.get(teacherId).assignments.push({
+        classId: row.classId || null,
+        subjectId: row.subjectId || null,
+        className: row.className || null,
+        gradeLevel: row.gradeLevel || null,
+        subjectName: row.subjectName || "Subject",
+        lessonTopic: row.lessonTopic || null,
+      });
+    });
+
+    const teachers = Array.from(teacherMap.values());
+    const classLookup = new Map();
+    const subjectLookup = new Map();
+    if (scheduleMeta.hasClassId) {
+      const { rows: classRows } = await query(
+        `SELECT id, class_name AS "className", grade_level AS "gradeLevel"
+           FROM classes`,
+      );
+      classRows.forEach((row) => {
+        const direct = normalizeHeaderToken(row.className);
+        if (direct) classLookup.set(direct, row.id);
+        const combined = normalizeHeaderToken(
+          `${row.gradeLevel || ""} ${row.className || ""}`,
+        );
+        if (combined) classLookup.set(combined, row.id);
+      });
+    }
+    if (scheduleMeta.hasSubjectId) {
+      const { rows: subjectRows } = await query(`SELECT id, name FROM subjects`);
+      subjectRows
+        .map((row) => [normalizeHeaderToken(row.name), row.id])
+        .filter(([key]) => Boolean(key))
+        .forEach(([key, value]) => subjectLookup.set(key, value));
+    }
+
+    const generationSummary = [];
+    const inserts = [];
+    let aiGeneratedTeachers = 0;
+    let fallbackGeneratedTeachers = 0;
+
+    for (const teacher of teachers) {
+      const canUseAi = options.mode !== "rules" && isGeminiEnabled();
+      let generatedRows = [];
+      let source = "rules";
+
+      if (canUseAi) {
+        const aiResult = await generateTeacherTimetableWithGemini({
+          teacherName: teacher.name,
+          lessons: teacher.assignments.map((item) => ({
+            subject: item.subjectName,
+            className: item.className,
+            gradeLevel: item.gradeLevel,
+            lessonLabel: item.lessonTopic,
+          })),
+          constraints: {
+            dayLabels: options.dayLabels,
+            startTime: options.startTime,
+            slotMinutes: options.slotMinutes,
+            gapMinutes: options.gapMinutes,
+            slotsPerDay: options.slotsPerDay,
+            sessionsPerAssignment: options.sessionsPerAssignment,
+          },
+        });
+        const parsedAiRows = parseImportedScheduleRows(aiResult?.rows || [], {
+          defaultInstructor: teacher.name,
+        });
+        generatedRows = parsedAiRows.classes.map((item) => ({
+          day: item.day,
+          startTime: item.startTime,
+          endTime: item.endTime,
+          title: item.title,
+          room: item.room || null,
+          instructor: item.instructor || teacher.name,
+          classId:
+            (scheduleMeta.hasClassId &&
+              classLookup.get(normalizeHeaderToken(item.className || ""))) ||
+            null,
+          subjectId:
+            (scheduleMeta.hasSubjectId &&
+              subjectLookup.get(normalizeHeaderToken(item.subjectName || ""))) ||
+            null,
+        }));
+        if (generatedRows.length > 0) {
+          source = "ai";
+          aiGeneratedTeachers += 1;
+        }
+      }
+
+      if (!generatedRows.length) {
+        generatedRows = buildRuleBasedTeacherSchedule({
+          teacher,
+          assignments: teacher.assignments,
+          options,
+        }).map((item) => ({
+          ...item,
+          classId: scheduleMeta.hasClassId ? item.classId : null,
+          subjectId: scheduleMeta.hasSubjectId ? item.subjectId : null,
+        }));
+        source = "rules";
+        fallbackGeneratedTeachers += 1;
+      }
+
+      if (!generatedRows.length) {
+        generationSummary.push({
+          teacherId: teacher.id,
+          teacherName: teacher.name,
+          source,
+          generatedCount: 0,
+        });
+        continue;
+      }
+
+      generationSummary.push({
+        teacherId: teacher.id,
+        teacherName: teacher.name,
+        source,
+        generatedCount: generatedRows.length,
+      });
+      generatedRows.forEach((item) => {
+        inserts.push({
+          teacherId: teacher.id,
+          ...item,
+        });
+      });
+    }
+
+    if (!inserts.length) {
+      return res.status(400).json({
+        error: "Could not generate timetable entries from current assignments.",
+      });
+    }
+
+    const client = await pool.connect();
+    let replacedCount = 0;
+    try {
+      await client.query("BEGIN");
+      if (options.replaceExisting) {
+        const teacherIds = teachers.map((teacher) => teacher.id);
+        const deleteResult = await client.query(
+          `DELETE FROM schedule_classes
+            WHERE user_id = ANY($1::uuid[])`,
+          [teacherIds],
+        );
+        replacedCount = deleteResult.rowCount || 0;
+      }
+
+      for (const item of inserts) {
+        const insertColumns = [
+          "user_id",
+          "day_of_week",
+          "start_time",
+          "end_time",
+          "title",
+          "room",
+          "instructor",
+        ];
+        const insertValues = [
+          item.teacherId,
+          item.day,
+          item.startTime,
+          item.endTime,
+          item.title,
+          item.room || null,
+          item.instructor || null,
+        ];
+        if (scheduleMeta.hasClassId) {
+          insertColumns.push("class_id");
+          insertValues.push(item.classId || null);
+        }
+        if (scheduleMeta.hasSubjectId) {
+          insertColumns.push("subject_id");
+          insertValues.push(item.subjectId || null);
+        }
+        const placeholders = insertColumns
+          .map((_, index) => `$${index + 1}`)
+          .join(", ");
+        await client.query(
+          `INSERT INTO schedule_classes (${insertColumns.join(", ")})
+           VALUES (${placeholders})`,
+          insertValues,
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    await logAudit(req, "admin_teacher_schedule_auto_generate", {
+      mode: options.mode,
+      replaceExisting: options.replaceExisting,
+      startTime: options.startTime,
+      slotMinutes: options.slotMinutes,
+      gapMinutes: options.gapMinutes,
+      slotsPerDay: options.slotsPerDay,
+      sessionsPerAssignment: options.sessionsPerAssignment,
+      teacherCount: teachers.length,
+      generatedCount: inserts.length,
+      aiGeneratedTeachers,
+      fallbackGeneratedTeachers,
+    });
+
+    return res.json({
+      success: true,
+      mode: options.mode,
+      replaceExisting: options.replaceExisting,
+      replacedCount,
+      teacherCount: teachers.length,
+      generatedCount: inserts.length,
+      aiGeneratedTeachers,
+      fallbackGeneratedTeachers,
+      summary: generationSummary,
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
 
 export default router;
 

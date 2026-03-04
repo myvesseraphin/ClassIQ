@@ -5,6 +5,7 @@ import path from "path";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import { ensureCsrfCookie, requireCsrf } from "./middleware/csrf.js";
+import { requireAuth } from "./middleware/auth.js";
 import authRoutes from "./routes/auth.js";
 import studentRoutes from "./routes/student.js";
 import teacherRoutes from "./routes/teacher.js";
@@ -73,6 +74,7 @@ app.use(cookieParser());
 app.use(ensureCsrfCookie);
 app.use(
   "/uploads",
+  requireAuth,
   (req, res, next) => {
     res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
     next();
@@ -84,7 +86,7 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-app.use("/api/auth", authRoutes);
+app.use("/api/auth", requireCsrf, authRoutes);
 app.use("/api/student", requireCsrf, studentRoutes);
 app.use("/api/teacher", requireCsrf, teacherRoutes);
 app.use("/api/admin", requireCsrf, adminRoutes);

@@ -149,6 +149,10 @@ const AdminTeachersAnalytics = () => {
                       label="Avg Performance"
                       onClick={() => toggleSort("averageStudentPerformance")}
                     />
+                    <SortableTh
+                      label="Activity"
+                      onClick={() => toggleSort("activityLevel")}
+                    />
                     <SortableTh label="Last Login" onClick={() => toggleSort("lastLogin")} />
                   </tr>
                 </thead>
@@ -169,6 +173,9 @@ const AdminTeachersAnalytics = () => {
                       </td>
                       <td className="px-8 py-5 text-sm font-bold text-slate-600">
                         {Number(teacher.averageStudentPerformance) || 0}%
+                      </td>
+                      <td className="px-8 py-5 text-sm font-bold text-slate-600">
+                        {Number(teacher.activityLevel) || 0}% ({teacher.activityBand || "Low"})
                       </td>
                       <td className="px-8 py-5 text-sm font-bold text-slate-400">
                         {teacher.lastLogin || "--"}

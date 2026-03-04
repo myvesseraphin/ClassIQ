@@ -12,8 +12,12 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash text NOT NULL,
   role text NOT NULL CHECK (role IN ('student', 'teacher', 'admin')),
   created_at timestamptz NOT NULL DEFAULT now(),
-  email_verified boolean NOT NULL DEFAULT false
+  email_verified boolean NOT NULL DEFAULT false,
+  token_version integer NOT NULL DEFAULT 0
 );
+
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS token_version integer NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS schools (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -101,6 +105,16 @@ CREATE TABLE IF NOT EXISTS user_settings (
   user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   notifications_enabled boolean NOT NULL DEFAULT true,
   auto_sync boolean NOT NULL DEFAULT true,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS system_settings (
+  id integer PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  academic_year text,
+  terms text,
+  grading_scale text,
+  role_permissions text,
+  updated_by uuid REFERENCES users(id) ON DELETE SET NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -226,8 +240,20 @@ CREATE TABLE IF NOT EXISTS schedule_classes (
   title text NOT NULL,
   room text,
   instructor text,
+  class_id uuid REFERENCES classes(id) ON DELETE SET NULL,
+  subject_id uuid REFERENCES subjects(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE schedule_classes
+  ADD COLUMN IF NOT EXISTS class_id uuid REFERENCES classes(id) ON DELETE SET NULL;
+ALTER TABLE schedule_classes
+  ADD COLUMN IF NOT EXISTS subject_id uuid REFERENCES subjects(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS schedule_classes_user_day_idx
+  ON schedule_classes(user_id, day_of_week, start_time);
+CREATE INDEX IF NOT EXISTS schedule_classes_class_day_idx
+  ON schedule_classes(class_id, day_of_week, start_time);
 
 -- ============================================================
 -- Learning content
@@ -260,8 +286,18 @@ CREATE TABLE IF NOT EXISTS exercises (
   question_count integer,
   exercise_date date,
   created_at timestamptz NOT NULL DEFAULT now(),
-  subject_id uuid REFERENCES subjects(id) ON DELETE SET NULL
+  subject_id uuid REFERENCES subjects(id) ON DELETE SET NULL,
+  assigned_by_teacher_id uuid REFERENCES users(id) ON DELETE SET NULL,
+  assignment_origin text
 );
+
+ALTER TABLE exercises
+  ADD COLUMN IF NOT EXISTS assigned_by_teacher_id uuid REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE exercises
+  ADD COLUMN IF NOT EXISTS assignment_origin text;
+
+CREATE INDEX IF NOT EXISTS exercises_assigned_by_teacher_idx
+  ON exercises(assigned_by_teacher_id);
 
 CREATE TABLE IF NOT EXISTS exercise_questions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -281,7 +317,8 @@ CREATE TABLE IF NOT EXISTS exercise_submissions (
   status text NOT NULL CHECK (status IN ('in_progress', 'submitted')) DEFAULT 'submitted',
   score integer,
   submitted_at timestamptz NOT NULL DEFAULT now(),
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (user_id, exercise_id)
 );
 
 CREATE TABLE IF NOT EXISTS exercise_answers (
@@ -289,8 +326,36 @@ CREATE TABLE IF NOT EXISTS exercise_answers (
   submission_id uuid NOT NULL REFERENCES exercise_submissions(id) ON DELETE CASCADE,
   question_id uuid NOT NULL REFERENCES exercise_questions(id) ON DELETE CASCADE,
   answer_text text,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  teacher_score numeric,
+  teacher_feedback text,
+  reviewed_by_teacher_id uuid REFERENCES users(id) ON DELETE SET NULL,
+  reviewed_at timestamptz
 );
+
+ALTER TABLE exercise_answers
+  ADD COLUMN IF NOT EXISTS teacher_score numeric;
+ALTER TABLE exercise_answers
+  ADD COLUMN IF NOT EXISTS teacher_feedback text;
+ALTER TABLE exercise_answers
+  ADD COLUMN IF NOT EXISTS reviewed_by_teacher_id uuid REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE exercise_answers
+  ADD COLUMN IF NOT EXISTS reviewed_at timestamptz;
+
+CREATE INDEX IF NOT EXISTS exercise_answers_reviewed_by_teacher_idx
+  ON exercise_answers(reviewed_by_teacher_id);
+
+DELETE FROM exercise_submissions older
+USING exercise_submissions newer
+WHERE older.user_id = newer.user_id
+  AND older.exercise_id = newer.exercise_id
+  AND (
+    older.created_at < newer.created_at
+    OR (older.created_at = newer.created_at AND older.id::text < newer.id::text)
+  );
+
+CREATE UNIQUE INDEX IF NOT EXISTS exercise_submissions_user_exercise_unique_idx
+  ON exercise_submissions(user_id, exercise_id);
 
 CREATE TABLE IF NOT EXISTS assessments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

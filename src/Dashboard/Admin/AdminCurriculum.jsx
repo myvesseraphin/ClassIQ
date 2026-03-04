@@ -16,6 +16,8 @@ const AdminCurriculum = () => {
   const [subjects, setSubjects] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [curriculum, setCurriculum] = useState([]);
+  const [serverSummary, setServerSummary] = useState(null);
+  const [teacherProgress, setTeacherProgress] = useState([]);
   const [selectedClassId, setSelectedClassId] = useState("");
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
   const [selectedTeacherId, setSelectedTeacherId] = useState("");
@@ -41,6 +43,12 @@ const AdminCurriculum = () => {
         setTeachers(Array.isArray(teacherData?.teachers) ? teacherData.teachers : []);
         setCurriculum(
           Array.isArray(curriculumData?.tree) ? curriculumData.tree : [],
+        );
+        setServerSummary(curriculumData?.summary || null);
+        setTeacherProgress(
+          Array.isArray(curriculumData?.teacherProgress)
+            ? curriculumData.teacherProgress
+            : [],
         );
       } catch (err) {
         console.error("Failed to load curriculum overview", err);
@@ -84,7 +92,13 @@ const AdminCurriculum = () => {
             units.length,
         )
       : 0;
-    return { delayedUnits, completion, units: units.length };
+    const assessmentCompletion = units.length
+      ? Math.round(
+          units.reduce((sum, u) => sum + (Number(u.assessmentCompletionPct) || 0), 0) /
+            units.length,
+        )
+      : 0;
+    return { delayedUnits, completion, assessmentCompletion, units: units.length };
   }, [filteredTree]);
 
   if (isLoading) {
@@ -108,6 +122,15 @@ const AdminCurriculum = () => {
           </h1>
           <p className="text-sm font-bold text-slate-400 mt-1">
             Structured tracking by term, unit, topic, and teacher.
+          </p>
+        </div>
+
+        <div className="bg-blue-50 border border-blue-100 rounded-[1.5rem] p-4">
+          <p className="text-xs font-black uppercase tracking-widest text-blue-700">
+            Policy
+          </p>
+          <p className="text-sm font-bold text-blue-800 mt-1">
+            Curriculum is structured as Term {"->"} Unit {"->"} Topic. Units cannot be marked complete without an end-unit assessment.
           </p>
         </div>
 
@@ -149,11 +172,22 @@ const AdminCurriculum = () => {
             tone="amber"
           />
           <MetricCard
-            label="Tracked Units"
-            value={totals.units}
+            label="Assessment Completion"
+            value={`${totals.assessmentCompletion}%`}
             icon={<Route size={18} />}
             tone="slate"
           />
+        </div>
+
+        <div className="bg-white border border-slate-100 rounded-[2rem] p-6 shadow-sm">
+          <div className="flex flex-wrap items-center gap-4 text-xs font-black uppercase tracking-widest text-slate-400">
+            <span>Total Branches: {serverSummary?.totalBranches ?? filteredTree.length}</span>
+            <span>Total Units: {serverSummary?.totalUnits ?? totals.units}</span>
+            <span>Delayed Units: {serverSummary?.delayedUnits ?? totals.delayedUnits}</span>
+            <span>
+              Avg Completion: {serverSummary?.avgCompletion ?? totals.completion}%
+            </span>
+          </div>
         </div>
 
         <div className="space-y-6">
@@ -199,6 +233,15 @@ const AdminCurriculum = () => {
                             On Track
                           </span>
                         )}
+                        <span
+                          className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${
+                            unit.unitCompleted
+                              ? "bg-emerald-50 text-emerald-700"
+                              : "bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {unit.unitCompleted ? "Unit Complete" : "Unit In Progress"}
+                        </span>
                         <span className="text-xs font-black text-slate-500">
                           {Number(unit.completionPct) || 0}% Complete
                         </span>
@@ -233,6 +276,53 @@ const AdminCurriculum = () => {
               </div>
             </div>
           ))}
+        </div>
+
+        <div className="bg-white border border-slate-100 rounded-[2rem] shadow-sm overflow-hidden">
+          <div className="px-6 py-5 border-b border-slate-100">
+            <h2 className="text-lg font-black text-slate-900">Progress by Teacher</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-slate-50/60 border-b border-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  <th className="px-6 py-3">Teacher</th>
+                  <th className="px-6 py-3">Units</th>
+                  <th className="px-6 py-3">Delayed</th>
+                  <th className="px-6 py-3">Completion</th>
+                  <th className="px-6 py-3">Assessment Completion</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {(teacherProgress || []).map((item) => (
+                  <tr key={item.teacherId || item.teacherName}>
+                    <td className="px-6 py-4 text-sm font-black text-slate-800">
+                      {item.teacherName || "Unassigned"}
+                    </td>
+                    <td className="px-6 py-4 text-sm font-bold text-slate-600">
+                      {Number(item.units) || 0}
+                    </td>
+                    <td className="px-6 py-4 text-sm font-bold text-slate-600">
+                      {Number(item.delayedUnits) || 0}
+                    </td>
+                    <td className="px-6 py-4 text-sm font-bold text-slate-600">
+                      {Number(item.completionPct) || 0}%
+                    </td>
+                    <td className="px-6 py-4 text-sm font-bold text-slate-600">
+                      {Number(item.assessmentCompletionPct) || 0}%
+                    </td>
+                  </tr>
+                ))}
+                {teacherProgress.length === 0 && (
+                  <tr>
+                    <td className="px-6 py-5 text-sm font-bold text-slate-400" colSpan={5}>
+                      No teacher progress rows for the current filters.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

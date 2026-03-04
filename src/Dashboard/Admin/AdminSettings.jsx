@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
+  AlertCircle,
   CheckCircle2,
   Lock,
   Loader2,
@@ -58,6 +59,7 @@ const AdminSettings = () => {
     pageTo: "",
     term: "",
     weekNumber: "",
+    unitCompleted: false,
     notes: "",
     effectiveDate: "",
   });
@@ -100,6 +102,7 @@ const AdminSettings = () => {
         lesson.weekNumber === null || lesson.weekNumber === undefined
           ? ""
           : String(lesson.weekNumber),
+      unitCompleted: Boolean(lesson.unitCompleted),
       notes: lesson.notes || "",
       effectiveDate: toIsoDateInput(lesson.effectiveDate),
     });
@@ -242,6 +245,7 @@ const AdminSettings = () => {
       pageTo: String(form.pageTo || "").trim() || undefined,
       term: String(form.term || "").trim() || undefined,
       weekNumber: String(form.weekNumber || "").trim() || undefined,
+      unitCompleted: Boolean(form.unitCompleted),
       notes: String(form.notes || "").trim() || undefined,
       effectiveDate: String(form.effectiveDate || "").trim() || undefined,
     };
@@ -256,6 +260,14 @@ const AdminSettings = () => {
     }
     if (!payload.topic) {
       toast.error("Topic is required.");
+      return;
+    }
+    if (!payload.term) {
+      toast.error("Term is required.");
+      return;
+    }
+    if (!payload.unitTitle) {
+      toast.error("Unit title is required.");
       return;
     }
 
@@ -337,6 +349,15 @@ const AdminSettings = () => {
         </div>
 
         <div className="bg-white border border-slate-100 rounded-[2.5rem] p-8 shadow-sm">
+          <div className="mb-6 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3">
+            <p className="text-xs font-black text-blue-700 uppercase tracking-wider">
+              Curriculum Structure Rule
+            </p>
+            <p className="text-sm font-bold text-blue-800 mt-1">
+              Term {"->"} Unit {"->"} Topic. A unit cannot be marked complete without a completed end-unit assessment.
+            </p>
+          </div>
+
           <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-6">
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 w-full">
               <div className="space-y-2">
@@ -446,7 +467,7 @@ const AdminSettings = () => {
 
           <div className="mt-8 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             <Field
-              label="Unit Title (Optional)"
+              label="Unit Title"
               value={form.unitTitle}
               onChange={(v) => handleFormChange("unitTitle", v)}
               placeholder="Example: Unit 2 - Fractions"
@@ -488,7 +509,7 @@ const AdminSettings = () => {
               inputMode="numeric"
             />
             <Field
-              label="Term (Optional)"
+              label="Term"
               value={form.term}
               onChange={(v) => handleFormChange("term", v)}
               placeholder="Example: Term 1"
@@ -500,6 +521,26 @@ const AdminSettings = () => {
               placeholder="Example: 6"
               inputMode="numeric"
             />
+          </div>
+
+          <div className="mt-4">
+            <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <input
+                type="checkbox"
+                checked={Boolean(form.unitCompleted)}
+                onChange={(e) => handleFormChange("unitCompleted", e.target.checked)}
+                className="h-4 w-4 accent-[#2D70FD]"
+              />
+              <span className="text-xs font-black uppercase tracking-wider text-slate-700">
+                Mark Unit Complete
+              </span>
+            </label>
+            {form.unitCompleted ? (
+              <p className="mt-2 text-xs font-bold text-amber-700 flex items-center gap-1">
+                <AlertCircle size={14} />
+                Requires at least one completed end-unit assessment for this class and subject.
+              </p>
+            ) : null}
           </div>
 
           <div className="mt-4">
@@ -610,6 +651,9 @@ const AdminSettings = () => {
                       Teacher
                     </th>
                     <th className="px-8 py-5 text-xs font-black text-slate-400 tracking-tight uppercase">
+                      Unit Status
+                    </th>
+                    <th className="px-8 py-5 text-xs font-black text-slate-400 tracking-tight uppercase">
                       Pages
                     </th>
                     <th className="px-8 py-5 text-xs font-black text-slate-400 tracking-tight uppercase">
@@ -641,6 +685,17 @@ const AdminSettings = () => {
                       </td>
                       <td className="px-8 py-6 text-sm font-bold text-slate-500">
                         {lesson.teacher || "--"}
+                      </td>
+                      <td className="px-8 py-6 text-sm font-bold text-slate-500">
+                        {lesson.unitCompleted ? (
+                          <span className="inline-flex rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                            Completed
+                          </span>
+                        ) : (
+                          <span className="inline-flex rounded-lg bg-amber-50 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-amber-700">
+                            In Progress
+                          </span>
+                        )}
                       </td>
                       <td className="px-8 py-6 text-sm font-bold text-slate-500">
                         {lesson.pageFrom || lesson.pageTo

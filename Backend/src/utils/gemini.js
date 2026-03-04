@@ -802,6 +802,120 @@ Rules:
   }
 };
 
+export const generateTeacherTimetableWithGemini = async ({
+  teacherName,
+  lessons = [],
+  constraints = {},
+}) => {
+  if (!isGeminiEnabled()) return null;
+
+  const safeLessons = Array.isArray(lessons)
+    ? lessons
+        .slice(0, 120)
+        .map((item) => ({
+          subject: normalizeText(item?.subject, 120),
+          className: normalizeText(item?.className, 120),
+          gradeLevel: normalizeText(item?.gradeLevel, 80),
+          lessonLabel: normalizeText(item?.lessonLabel, 180),
+        }))
+        .filter((item) => item.subject || item.className || item.lessonLabel)
+    : [];
+
+  if (!safeLessons.length) return null;
+
+  const prompt = `
+You are a school timetable planner.
+Generate a balanced weekly timetable and return STRICT JSON only.
+
+Context:
+- Teacher: ${normalizeText(teacherName, 120) || "Teacher"}
+- Available days: ${Array.isArray(constraints?.dayLabels) ? constraints.dayLabels.join(", ") : "Mon, Tue, Wed, Thu, Fri"}
+- Start time: ${normalizeText(constraints?.startTime, 10) || "08:00"}
+- Slot duration (minutes): ${Number(constraints?.slotMinutes) || 50}
+- Gap between slots (minutes): ${Number(constraints?.gapMinutes) || 10}
+- Maximum slots per day: ${Number(constraints?.slotsPerDay) || 6}
+- Target lessons per class-subject assignment: ${Number(constraints?.sessionsPerAssignment) || 2}
+
+Lessons to schedule:
+${safeLessons
+  .map(
+    (item, index) =>
+      `${index + 1}. Subject: ${item.subject || "Subject"} | Class: ${
+        item.className || "Class"
+      } | Grade: ${item.gradeLevel || "N/A"} | Lesson focus: ${
+        item.lessonLabel || "General lesson"
+      }`,
+  )
+  .join("\n")}
+
+JSON schema:
+{
+  "rows": [
+    {
+      "day": "Mon|Tue|Wed|Thu|Fri|Sat|Sun",
+      "startTime": "HH:MM",
+      "endTime": "HH:MM",
+      "title": string,
+      "room": string | null,
+      "instructor": string | null,
+      "className": string | null,
+      "subjectName": string | null
+    }
+  ]
+}
+
+Rules:
+- Use only provided lessons/subjects/classes.
+- Keep times valid and non-overlapping for the same teacher.
+- Spread classes across the week.
+- Do not exceed max slots per day.
+- Keep title concise (subject + class + optional lesson focus).
+`.trim();
+
+  try {
+    const parsed = await generateStructuredJson({
+      prompt,
+      temperature: 0.2,
+    });
+    if (!parsed || typeof parsed !== "object") return null;
+
+    const rowsRaw = Array.isArray(parsed.rows)
+      ? parsed.rows
+      : Array.isArray(parsed.classes)
+        ? parsed.classes
+        : [];
+    const rows = rowsRaw
+      .slice(0, 500)
+      .map((item) => ({
+        day: normalizeText(item?.day, 20),
+        startTime: normalizeText(item?.startTime, 10),
+        endTime: normalizeText(item?.endTime, 10),
+        title: normalizeText(item?.title, 220),
+        room: normalizeText(item?.room, 120) || null,
+        instructor:
+          normalizeText(item?.instructor, 120) ||
+          normalizeText(teacherName, 120) ||
+          null,
+        className: normalizeText(item?.className, 120) || null,
+        subjectName: normalizeText(item?.subjectName, 120) || null,
+      }))
+      .filter((row) => row.day && row.startTime && row.endTime && row.title);
+
+    if (!rows.length) return null;
+    return { rows };
+  } catch (error) {
+    if (isHardQuotaExhausted(error)) {
+      console.warn("Gemini quota exhausted while generating teacher timetable.");
+    } else {
+      console.error(
+        "Gemini teacher timetable generation failed",
+        error?.message || error,
+      );
+    }
+    return null;
+  }
+};
+
 export const analyzeExerciseSubmissionWithGemini = async ({
   subject,
   gradeLevel,

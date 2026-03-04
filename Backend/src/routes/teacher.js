@@ -85,6 +85,18 @@ const formatTimeRange = (start, end) => {
   return `${startValue} - ${endValue}`;
 };
 
+const timeToMinutes = (value) => {
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  return hour * 60 + minute;
+};
+
+const getCurrentDayIndex = () => (new Date().getDay() + 6) % 7;
+
 const formatPercent = (value) => {
   if (value === null || value === undefined) return null;
   return `${value}%`;
@@ -1389,9 +1401,9 @@ const classroomFileUpload = multer({
 
 let exerciseAssignmentMetaReady = null;
 const ensureExerciseAssignmentMeta = async () => {
-  if (exerciseAssignmentMetaReady === true) return true;
+  if (exerciseAssignmentMetaReady !== null) return exerciseAssignmentMetaReady;
   try {
-    const { rows: existingRows } = await query(
+    const { rows } = await query(
       `SELECT EXISTS (
           SELECT 1
             FROM information_schema.columns
@@ -1405,47 +1417,12 @@ const ensureExerciseAssignmentMeta = async () => {
              AND column_name = 'assignment_origin'
         ) AS "hasAssignmentOrigin"`,
     );
-    let hasMeta =
-      Boolean(existingRows[0]?.hasTeacherId) &&
-      Boolean(existingRows[0]?.hasAssignmentOrigin);
-
-    if (!hasMeta) {
-      await query(
-        `ALTER TABLE exercises
-           ADD COLUMN IF NOT EXISTS assigned_by_teacher_id uuid REFERENCES users(id) ON DELETE SET NULL`,
-      );
-      await query(
-        `ALTER TABLE exercises
-           ADD COLUMN IF NOT EXISTS assignment_origin text`,
-      );
-      await query(
-        `CREATE INDEX IF NOT EXISTS exercises_assigned_by_teacher_idx
-            ON exercises(assigned_by_teacher_id)`,
-      );
-
-      const { rows: recheckRows } = await query(
-        `SELECT EXISTS (
-            SELECT 1
-              FROM information_schema.columns
-             WHERE table_name = 'exercises'
-               AND column_name = 'assigned_by_teacher_id'
-          ) AS "hasTeacherId",
-          EXISTS (
-            SELECT 1
-              FROM information_schema.columns
-             WHERE table_name = 'exercises'
-               AND column_name = 'assignment_origin'
-          ) AS "hasAssignmentOrigin"`,
-      );
-      hasMeta =
-        Boolean(recheckRows[0]?.hasTeacherId) &&
-        Boolean(recheckRows[0]?.hasAssignmentOrigin);
-    }
-
+    const hasMeta =
+      Boolean(rows[0]?.hasTeacherId) && Boolean(rows[0]?.hasAssignmentOrigin);
     exerciseAssignmentMetaReady = hasMeta;
     return hasMeta;
   } catch (error) {
-    console.error("Failed to ensure exercises assignment metadata columns", error);
+    console.error("Failed to verify exercises assignment metadata columns", error);
     exerciseAssignmentMetaReady = false;
     return false;
   }
@@ -1453,29 +1430,10 @@ const ensureExerciseAssignmentMeta = async () => {
 
 let exerciseAnswerTeacherReviewMetaReady = null;
 const ensureExerciseAnswerTeacherReviewMeta = async () => {
-  if (exerciseAnswerTeacherReviewMetaReady === true) return true;
+  if (exerciseAnswerTeacherReviewMetaReady !== null) {
+    return exerciseAnswerTeacherReviewMetaReady;
+  }
   try {
-    await query(
-      `ALTER TABLE exercise_answers
-         ADD COLUMN IF NOT EXISTS teacher_score numeric`,
-    );
-    await query(
-      `ALTER TABLE exercise_answers
-         ADD COLUMN IF NOT EXISTS teacher_feedback text`,
-    );
-    await query(
-      `ALTER TABLE exercise_answers
-         ADD COLUMN IF NOT EXISTS reviewed_by_teacher_id uuid REFERENCES users(id) ON DELETE SET NULL`,
-    );
-    await query(
-      `ALTER TABLE exercise_answers
-         ADD COLUMN IF NOT EXISTS reviewed_at timestamptz`,
-    );
-    await query(
-      `CREATE INDEX IF NOT EXISTS exercise_answers_reviewed_by_teacher_idx
-          ON exercise_answers(reviewed_by_teacher_id)`,
-    );
-
     const { rows } = await query(
       `SELECT EXISTS (
           SELECT 1
@@ -1510,7 +1468,7 @@ const ensureExerciseAnswerTeacherReviewMeta = async () => {
     exerciseAnswerTeacherReviewMetaReady = ready;
     return ready;
   } catch (error) {
-    console.error("Failed to ensure exercise answer teacher review columns", error);
+    console.error("Failed to verify exercise answer teacher review columns", error);
     exerciseAnswerTeacherReviewMetaReady = false;
     return false;
   }
@@ -5101,6 +5059,8 @@ router.get("/planning/today", async (req, res, next) => {
       dayIndex: row.day,
       day: DAY_LABELS[row.day] || `Day ${row.day}`,
       time: formatTimeRange(row.startTime, row.endTime),
+      startTime: formatTime(row.startTime),
+      endTime: formatTime(row.endTime),
       title: row.title,
       room: row.room,
       instructor: row.instructor,
@@ -5132,6 +5092,42 @@ router.get("/planning/today", async (req, res, next) => {
         guide: buildTeachingGuide(session),
       }));
 
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const currentSession = todaySessions.find((session) => {
+      const startMinutes = timeToMinutes(session.startTime);
+      const endMinutes = timeToMinutes(session.endTime);
+      return (
+        startMinutes !== null &&
+        endMinutes !== null &&
+        startMinutes <= nowMinutes &&
+        nowMinutes < endMinutes
+      );
+    });
+    const todayMinutes = todaySessions.reduce((sum, session) => {
+      const startMinutes = timeToMinutes(session.startTime);
+      const endMinutes = timeToMinutes(session.endTime);
+      if (
+        startMinutes === null ||
+        endMinutes === null ||
+        endMinutes <= startMinutes
+      ) {
+        return sum;
+      }
+      return sum + (endMinutes - startMinutes);
+    }, 0);
+    const weekMinutes = allSessions.reduce((sum, session) => {
+      const startMinutes = timeToMinutes(session.startTime);
+      const endMinutes = timeToMinutes(session.endTime);
+      if (
+        startMinutes === null ||
+        endMinutes === null ||
+        endMinutes <= startMinutes
+      ) {
+        return sum;
+      }
+      return sum + (endMinutes - startMinutes);
+    }, 0);
+
     return res.json({
       date: todayIso,
       dayLabel: DAY_LABELS[todayIndex],
@@ -5143,6 +5139,19 @@ router.get("/planning/today", async (req, res, next) => {
         room: session.room,
         instructor: session.instructor,
       })),
+      teachingHours: {
+        todayHours: Number((todayMinutes / 60).toFixed(2)),
+        weeklyHours: Number((weekMinutes / 60).toFixed(2)),
+      },
+      currentSession: currentSession
+        ? {
+            ...currentSession,
+            remainingMinutes:
+              timeToMinutes(currentSession.endTime) !== null
+                ? Math.max(timeToMinutes(currentSession.endTime) - nowMinutes, 0)
+                : null,
+          }
+        : null,
       backlog: tasksResult.rows.map((task) => ({
         id: task.id,
         title: task.title,
@@ -6241,7 +6250,13 @@ router.get("/exercises/:id/review", async (req, res, next) => {
       return res.status(403).json({ error: "No assigned students." });
     }
 
-    await ensureExerciseAnswerTeacherReviewMeta();
+    const supportsTeacherReviewMeta = await ensureExerciseAnswerTeacherReviewMeta();
+    if (!supportsTeacherReviewMeta) {
+      return res.status(503).json({
+        error:
+          "Exercise review schema is not migrated. Apply latest database migrations and retry.",
+      });
+    }
     const supportsExerciseMeta = await ensureExerciseAssignmentMeta();
     const { rows: exerciseRows } = await query(
       `SELECT e.id,
@@ -6398,7 +6413,13 @@ router.patch("/exercises/:id/review", async (req, res, next) => {
       return res.status(403).json({ error: "No assigned students." });
     }
 
-    await ensureExerciseAnswerTeacherReviewMeta();
+    const supportsTeacherReviewMeta = await ensureExerciseAnswerTeacherReviewMeta();
+    if (!supportsTeacherReviewMeta) {
+      return res.status(503).json({
+        error:
+          "Exercise review schema is not migrated. Apply latest database migrations and retry.",
+      });
+    }
     const supportsExerciseMeta = await ensureExerciseAssignmentMeta();
 
     const { rows: exerciseRows } = await query(

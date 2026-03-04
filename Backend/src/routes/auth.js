@@ -14,7 +14,10 @@ import { getAppCookieOptions } from "../utils/cookies.js";
 dotenv.config();
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || "dev_secret_change_me";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET must be configured.");
+}
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
 const RESET_TTL_MINUTES = Number(process.env.RESET_TOKEN_TTL_MINUTES || 15);
 const REQUIRE_EMAIL_VERIFICATION =
@@ -72,6 +75,19 @@ const validatePassword = (password) => {
 };
 
 const getCookieOptions = () => getAppCookieOptions({ httpOnly: true });
+
+const issueAuthToken = (user) =>
+  jwt.sign(
+    {
+      sub: user.id,
+      role: user.role,
+      tv: Number(user.tokenVersion) || 0,
+    },
+    JWT_SECRET,
+    {
+      expiresIn: JWT_EXPIRES_IN,
+    },
+  );
 
 const sendVerifyEmail = async (email, code, firstName) => {
   if (!mailer) return false;
@@ -200,6 +216,7 @@ router.post("/login", authLimiter, async (req, res, next) => {
 
       const { rows } = await query(
         `SELECT u.id, u.email, u.role, u.password_hash AS "passwordHash",
+                u.token_version AS "tokenVersion",
                 u.email_verified AS "emailVerified",
                 p.first_name AS "firstName", p.last_name AS "lastName",
                 p.avatar_url AS "avatarUrl", p.school_name AS "school"
@@ -233,9 +250,7 @@ router.post("/login", authLimiter, async (req, res, next) => {
       });
     }
 
-    const token = jwt.sign({ sub: user.id, role: user.role }, JWT_SECRET, {
-      expiresIn: JWT_EXPIRES_IN,
-    });
+    const token = issueAuthToken(user);
 
     res.cookie("classiq_token", token, getCookieOptions());
     await logAudit(req, "login_success", { userId: user.id });
@@ -264,8 +279,8 @@ router.post("/register", authLimiter, async (req, res, next) => {
       role && ["student", "teacher"].includes(role) ? role : "student";
     const { rows: inserted } = await query(
       `INSERT INTO users (email, password_hash, role, email_verified)
-       VALUES ($1, $2, $3)
-       RETURNING id, email, role, email_verified AS "emailVerified"`,
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, email, role, token_version AS "tokenVersion", email_verified AS "emailVerified"`,
       [email, passwordHash, normalizedRole, false],
     );
 
@@ -288,9 +303,7 @@ router.post("/register", authLimiter, async (req, res, next) => {
       });
     }
 
-    const token = jwt.sign({ sub: user.id, role: user.role }, JWT_SECRET, {
-      expiresIn: JWT_EXPIRES_IN,
-    });
+    const token = issueAuthToken(user);
     res.cookie("classiq_token", token, getCookieOptions());
     return res.status(201).json({
       user: { ...user, firstName, lastName, emailVerified: user.emailVerified },
@@ -444,10 +457,16 @@ router.post("/reset-password", resetLimiter, async (req, res, next) => {
     }
 
     const passwordHash = await bcrypt.hash(newPassword, 10);
-    await query(`UPDATE users SET password_hash = $1 WHERE id = $2`, [
+    await query(
+      `UPDATE users
+          SET password_hash = $1,
+              token_version = token_version + 1
+        WHERE id = $2`,
+      [
       passwordHash,
       reset.userId,
-    ]);
+      ],
+    );
     await query(`UPDATE password_resets SET used_at = NOW() WHERE id = $1`, [
       reset.id,
     ]);
@@ -531,7 +550,8 @@ router.post("/verify-email", resetLimiter, async (req, res, next) => {
 
     await query(
       `UPDATE users
-          SET email_verified = true
+          SET email_verified = true,
+              token_version = token_version + 1
         WHERE email = $1`,
       [email],
     );

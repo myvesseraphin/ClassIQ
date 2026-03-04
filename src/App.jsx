@@ -148,7 +148,10 @@ function App() {
         <Route
           path="/library"
           element={
-            <ProtectedRoute redirectTo="/library-login">
+            <ProtectedRoute
+              allowedRoles={["teacher", "admin"]}
+              redirectTo="/library-login"
+            >
               <LibraryLayout />
             </ProtectedRoute>
           }

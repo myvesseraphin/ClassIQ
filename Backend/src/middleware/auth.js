@@ -1,11 +1,15 @@
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
+import { query } from "../db.js";
 
 dotenv.config();
 
-const JWT_SECRET = process.env.JWT_SECRET || "dev_secret_change_me";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET must be configured.");
+}
 
-export const requireAuth = (req, res, next) => {
+export const requireAuth = async (req, res, next) => {
   if (req.method === "OPTIONS") return next();
 
   const header = req.headers.authorization || "";
@@ -19,7 +23,29 @@ export const requireAuth = (req, res, next) => {
 
   try {
     const payload = jwt.verify(resolvedToken, JWT_SECRET);
-    req.user = { id: payload.sub, role: payload.role };
+    const userId = String(payload?.sub || "").trim();
+    const tokenVersion = Number(payload?.tv);
+    if (!userId || !Number.isInteger(tokenVersion)) {
+      return res.status(401).json({ error: "Invalid or expired token." });
+    }
+
+    const { rows } = await query(
+      `SELECT id, role, token_version AS "tokenVersion"
+         FROM users
+        WHERE id = $1
+        LIMIT 1`,
+      [userId],
+    );
+    const user = rows[0];
+    if (!user || Number(user.tokenVersion) !== tokenVersion) {
+      return res.status(401).json({ error: "Session expired. Please log in again." });
+    }
+
+    req.user = {
+      id: user.id,
+      role: user.role,
+      tokenVersion: Number(user.tokenVersion),
+    };
     return next();
   } catch (error) {
     return res.status(401).json({ error: "Invalid or expired token." });

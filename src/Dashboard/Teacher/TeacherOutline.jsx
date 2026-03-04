@@ -187,8 +187,10 @@ const TeacherOutline = () => {
     };
 
     loadPlanning();
+    const timer = window.setInterval(loadPlanning, 30000);
     return () => {
       active = false;
+      window.clearInterval(timer);
     };
   }, []);
 
@@ -412,7 +414,7 @@ const TeacherOutline = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
           <SummaryCard
             label="Sessions"
             value={sessionTotal}
@@ -433,6 +435,17 @@ const TeacherOutline = () => {
             note="Still to deliver"
             icon={<CalendarDays size={20} />}
             accent="text-amber-600"
+          />
+          <SummaryCard
+            label="Current Class"
+            value={planning?.currentSession?.title || "No live class"}
+            note={
+              planning?.currentSession
+                ? `${planning.currentSession.startTime}-${planning.currentSession.endTime} | ${planning.currentSession.remainingMinutes ?? 0} min left`
+                : `${planning?.teachingHours?.todayHours ?? 0}h today | ${planning?.teachingHours?.weeklyHours ?? 0}h this week`
+            }
+            icon={<Clock3 size={20} />}
+            accent="text-indigo-600"
           />
         </div>
 
